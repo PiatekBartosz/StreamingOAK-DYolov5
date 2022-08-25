@@ -48,8 +48,7 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     # Handle request in a separate thread
     pass
-
-
+ 
 # parse config
 configPath = Path("json/result.json")
 if not configPath.exists():
@@ -128,7 +127,6 @@ th = threading.Thread(target=server_TCP.serve_forever)
 th.daemon = True
 th.start()
 
-
 # start MJPEG HTTP Server
 server_HTTP = ThreadedHTTPServer(('localhost', HTTP_SERVER_PORT), VideoStreamHandler)
 th2 = threading.Thread(target=server_HTTP.serve_forever)
@@ -189,44 +187,36 @@ with dai.Device(pipeline) as device:
         # if the frame is available, draw bbox-es on it and show
         height = frame.shape[0]
         width = frame.shape[1]
+
+        # todo create dict iterating over all labels or hardcode
+        send = {"3-bit": list()}
         for detection in detections:
             # Denormalize bounding box
             x1 = int(detection.xmin * width)
             x2 = int(detection.xmax * width)
             y1 = int(detection.ymin * height)
             y2 = int(detection.ymax * height)
-            # TODO hardcoded for now
+            # TODO labels hardcoded for now
             label = labels[0]
             cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
                         cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
-            server_TCP.datatosend = str(label) + "," + f"{int(detection.confidence * 100)}%"
+            # prepare json file to send with TCP
+            dim = {"xmax": detection.xmax, "xmin": detection.xmin, "ymax": detection.ymax, "ymin": detection.ymin}
+            send[label].append(dim)
+
+            # server_TCP.datatosend = str(label) + "," + str(detection)
+            # server_TCP.datatosend = str(label) + "," + f"{int(detection.confidence * 100)}%"
+
+        json_send = json.dumps(send)
+        server_TCP.datatosend = json_send
+
 
         cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
-
         cv2.imshow("frame", frame)
         server_HTTP.frametosend = frame
 
         if cv2.waitKey(1) == ord("q"):
-            break
-
-    while True:
-        inRgb = qRgb.get()
-        inDet = qDet.get()
-
-        if inRgb is not None:
-            frame = inRgb.getCvFrame()
-            cv2.putText(frame, "NN fps: {:.2f}".format(counter / (time.monotonic() - startTime)),
-                        (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
-
-        if inDet is not None:
-            detections = inDet.detections
-            counter += 1
-
-        if frame is not None:
-            displayFrame("rgb", frame, detections)
-
-        if cv2.waitKey(1) == ord('q'):
             break
