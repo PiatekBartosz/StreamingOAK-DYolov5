@@ -48,9 +48,13 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     # Handle request in a separate thread
     pass
+
+def decode_name(label_num):
+    decode_labels = {0: "3-bit", 1: "Mars", 2: "Milkyway", 3: "Snickers"}
+    return decode_labels[label_num]
  
 # parse config
-configPath = Path("json/result.json")
+configPath = Path("json/result_new.json")
 if not configPath.exists():
     raise ValueError("Path {} does not exist!".format(configPath))
 
@@ -78,7 +82,7 @@ nnMappings = config.get("mappings", {})
 labels = nnMappings.get("labels", {})
 
 # get model path
-nnPath = Path("result_openvino_2021.4_6shave.blob")
+nnPath = Path("best_openvino_2021.4_6shave.blob")
 if not Path(nnPath).exists():
     print("No blob found at {}. Looking into DepthAI model zoo.".format(nnPath))
 
@@ -188,16 +192,18 @@ with dai.Device(pipeline) as device:
         height = frame.shape[0]
         width = frame.shape[1]
 
-        # todo create dict iterating over all labels or hardcode
-        send = {"3-bit": list()}
+        send = {"3-bit": [], "Mars": [], "Milkyway": [], "Snickers": []}  
+            
         for detection in detections:
+            print("test: ", detection.label)
             # Denormalize bounding box
             x1 = int(detection.xmin * width)
             x2 = int(detection.xmax * width)
             y1 = int(detection.ymin * height)
             y2 = int(detection.ymax * height)
             # TODO labels hardcoded for now
-            label = labels[0]
+            label = decode_name(detection.label)
+            
             cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
                         cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)

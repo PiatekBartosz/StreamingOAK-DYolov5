@@ -8,4 +8,5 @@ Stream OAK-D camera prediction using TCP protocol while running a custom Yolov5 
 ```python3 app.py```
 
 # See result
-Visit: [localhost:8000](http://localhost:8000)
+Video: [localhost:8090](http://localhost:8090)
+Prediction: [localhost:8070](http://localhost:8070)
