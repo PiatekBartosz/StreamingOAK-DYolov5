@@ -7,6 +7,7 @@ print("TOP_LEFT, BOT_LEFT, BOT_RIGHT, TOP_RIGHT")
 # store warp box corners
 corners = []
 warped = False
+colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]
 
 # mouse callback
 def get_mouse_position(event, x, y, flags, param):
@@ -18,8 +19,6 @@ cap = cv2.VideoCapture(0)
 while True:
 
     ret, frame = cap.read()
-
-    colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]
 
     if corners:
         for index, corner in enumerate(corners):
@@ -54,7 +53,7 @@ while True:
         max_width = max(int(w1), int(w2))
 
         perspective_transform = cv2.getPerspectiveTransform(point_matrix, convert_matrix)
-        img_warped = cv2.warpPerspective(frame, perspective_transform, (max_width, max_height))
+        img_warped = cv2.warpPerspective(frame, perspective_transform, (w, h))
         cv2.imshow("warped", img_warped)
         warped = True
 cap.release()
