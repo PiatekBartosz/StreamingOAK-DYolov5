@@ -10,10 +10,12 @@ from PIL import Image
 import blobconverter
 from pathlib import Path
 import numpy as np
+import pickle
 
 
-# HTTP PORT
+# PORTS
 HTTP_SERVER_PORT = 8090
+JSON_PORT = 8070
 
 
 class TCPServerRequest(socketserver.BaseRequestHandler):
@@ -52,7 +54,11 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 def decode_name(label_num):
     decode_labels = {0: "3-bit", 1: "Mars", 2: "Milkyway", 3: "Snickers"}
     return decode_labels[label_num]
- 
+
+# open perspective calibration matrix
+with open("perspectiveCalibration/calibration_result", "rb") as infile:
+    transform_matrix = pickle.load(infile)
+
 # parse config
 configPath = Path("json/result_new.json")
 if not configPath.exists():
@@ -65,6 +71,7 @@ nnConfig = config.get("nn_config", {})
 # parse input shape
 if "input_size" in nnConfig:
     W, H = tuple(map(int, nnConfig.get("input_size").split('x')))
+
 
 # extract metadata
 metadata = nnConfig.get("NN_specific_metadata", {})
@@ -103,7 +110,6 @@ nnOut.setStreamName("nn")
 
 # Properties
 camRgb.setPreviewSize(W, H)
-
 camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
 camRgb.setInterleaved(False)
 camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
@@ -126,7 +132,7 @@ detectionNetwork.passthrough.link(xoutRgb.input)
 detectionNetwork.out.link(nnOut.input)
 
 # start TCP data server
-server_TCP = socketserver.TCPServer(('localhost', 8070), TCPServerRequest)
+server_TCP = socketserver.TCPServer(('localhost', JSON_PORT), TCPServerRequest)
 th = threading.Thread(target=server_TCP.serve_forever)
 th.daemon = True
 th.start()
@@ -155,24 +161,21 @@ with dai.Device(pipeline) as device:
     color = (255, 255, 255)
 
     # nn data, being the bounding box locations, are in <0..1> range - they need to be normalized with frame width/height
-    def frameNorm(frame, bbox):
-        normVals = np.full(len(bbox), frame.shape[0])
-        normVals[::2] = frame.shape[1]
-        return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
+    # def frameNorm(frame, bbox):
+    #     normVals = np.full(len(bbox), frame.shape[0])
+    #     normVals[::2] = frame.shape[1]
+    #     return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
 
-    def displayFrame(name, frame, detections):
-        color = (0, 255, 0)
-        for detection in detections:
-            bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
-            cv2.putText(frame, labels[detection.label], (bbox[0] + 10, bbox[1] + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-            cv2.putText(frame, f"{int(detection.confidence * 100)}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
-
-        # Show the frame
-        cv2.imshow(name, frame)
-
-        # Send frame
-        frame = cv2.imencode('.jpg', frame)[1].tobytes()
+    # def displayFrame(name, frame, detections):
+    #     color = (0, 255, 0)
+    #     for detection in detections:
+    #         bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
+    #         cv2.putText(frame, labels[detection.label], (bbox[0] + 10, bbox[1] + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+    #         cv2.putText(frame, f"{int(detection.confidence * 100)}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+    #         cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
+    #
+    #     # Send frame
+    #     frame = cv2.imencode('.jpg', frame)[1].tobytes()
 
     while True:
         inPreview = qRgb.get()
@@ -195,34 +198,42 @@ with dai.Device(pipeline) as device:
         send = {"3-bit": [], "Mars": [], "Milkyway": [], "Snickers": []}  
             
         for detection in detections:
-            print("test: ", detection.label)
+
             # Denormalize bounding box
             x1 = int(detection.xmin * width)
             x2 = int(detection.xmax * width)
             y1 = int(detection.ymin * height)
             y2 = int(detection.ymax * height)
-            # TODO labels hardcoded for now
+
+            # bbox middle
+            bbox_x, bbox_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
             label = decode_name(detection.label)
-            
             cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
                         cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
+
             # prepare json file to send with TCP
             dim = {"xmax": detection.xmax, "xmin": detection.xmin, "ymax": detection.ymax, "ymin": detection.ymin}
             send[label].append(dim)
 
-            # server_TCP.datatosend = str(label) + "," + str(detection)
-            # server_TCP.datatosend = str(label) + "," + f"{int(detection.confidence * 100)}%"
-
+        # send json format detection
         json_send = json.dumps(send)
         server_TCP.datatosend = json_send
 
-
+        # send normal view camera
         cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
+        frame_cpy = frame
         cv2.imshow("frame", frame)
         server_HTTP.frametosend = frame
+
+        # todo calculate new points using getPerspectiveTransform()
+
+
+        # send birdview camera if perspective calibration was done
+        if transform_matrix.any():
+            transformed_frame = cv2.warpPerspective(frame_cpy, transform_matrix, (W, H))
+            cv2.imshow("Transformed frame", transformed_frame)
 
         if cv2.waitKey(1) == ord("q"):
             break

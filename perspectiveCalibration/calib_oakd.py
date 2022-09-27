@@ -1,6 +1,8 @@
 import cv2
 import depthai as dai
 import numpy as np
+import pickle
+import math
 
 print("Mark corners of the warp in this specific order:")
 print("TOP_LEFT, BOT_LEFT, BOT_RIGHT, TOP_RIGHT")\
@@ -15,12 +17,13 @@ def get_mouse_position(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN and not warped:
         corners.append((x, y))
 
-
 # create pipeline
 pipeline = dai.Pipeline()
 cam = pipeline.create(dai.node.ColorCamera)
 cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.RGB)
-cam.setPreviewSize(1280, 720)
+
+# preview size has to match nn input in order to work in app.py
+cam.setPreviewSize(416, 416)
 xout = pipeline.create(dai.node.XLinkOut)
 xout.setStreamName("rgb")
 cam.preview.link(xout.input)
@@ -52,20 +55,51 @@ with dai.Device(pipeline) as device:
             h, w, _ = frame.shape
             convert_matrix = np.float32([[0, 0], [0, h], [w, h], [w, 0]])
             point_matrix = np.float32([top_left, bot_left, bot_right, top_right])
+            transform_matrix = cv2.getPerspectiveTransform(point_matrix, convert_matrix)
 
-            # search for max height
-            h1 = np.sqrt((top_left[0] - bot_left[0]) ** 2 + (top_left[1] - bot_left[1]) ** 2)
-            h2 = np.sqrt((top_right[0] - bot_right[0]) ** 2 + (top_right[1] - bot_right[1]) ** 2)
-            max_height = max(int(h1), int(h2))
-
+            # search for max height and width
             w1 = np.sqrt((top_left[0] - top_right[0]) ** 2 + (top_left[1] - top_right[1]) ** 2)
             w2 = np.sqrt((bot_left[0] - bot_right[0]) ** 2 + (bot_left[1] - bot_right[1]) ** 2)
             max_width = max(int(w1), int(w2))
 
-            perspective_transform = cv2.getPerspectiveTransform(point_matrix, convert_matrix)
-            img_warped = cv2.warpPerspective(frame, perspective_transform, (max_width, max_height))
-            cv2.imshow("warped", img_warped)
+            # h1 = np.sqrt((top_left[0] - bot_left[0]) ** 2 + (top_left[1] - bot_left[1]) ** 2)
+            # h2 = np.sqrt((top_right[0] - bot_right[0]) ** 2 + (top_right[1] - bot_right[1]) ** 2)
+
+            # calculate using A3 sheet aspect ratio
+            max_height = int(max_width/math.sqrt(math.pi))
+
             warped = True
+
+        elif warped:
+            img_warped = cv2.warpPerspective(frame, transform_matrix, (w, h))
+            img_warped = cv2.putText(
+                img=img_warped,
+                text="If the warp is correct press y,",
+                org=(20, 10),
+                fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                fontScale=0.5,
+                color=(0, 255, 0),
+                thickness=1
+            )
+            img_warped = cv2.putText(
+                img=img_warped,
+                text="therwise press n",
+                org=(20, 20),
+                fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                fontScale=0.5,
+                color=(0, 255, 0),
+                thickness=1
+            )
+            cv2.imshow("warped", img_warped)
+
+            if cv2.waitKey(1) == ord("y"):
+                with open("calibration_result", "wb") as outfile:
+                    pickle.dump(transform_matrix, outfile)
+                break
+
+            elif cv2.waitKey(1) == ord("n"):
+                corners = []
+                warped = False
 
         if cv2.waitKey(1) == ord("q"):
             break
