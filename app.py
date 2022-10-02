@@ -205,8 +205,17 @@ with dai.Device(pipeline) as device:
             y1 = int(detection.ymin * height)
             y2 = int(detection.ymax * height)
 
-            # bbox middle
-            bbox_x, bbox_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
+            # todo calculate real world coordinates
+
+            # bbox middle coordinates
+            bbox_x, bbox_y = int((x1 + x2) // 2), int((y1 + y2) // 2)
+            if transform_matrix.any():
+                # if perspective calibration was done calculate detection (x,y) on warped img
+                t_bbox_x, t_bbox_y, scale = np.matmul(transform_matrix, np.float32([bbox_x, bbox_y, 1]))
+                t_bbox_x, t_bbox_y = int(t_bbox_x / scale), int(t_bbox_y / scale)
+            else:
+                t_bbox_x, t_bbox_y = 0, 0
+
             label = decode_name(detection.label)
             cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
@@ -214,7 +223,8 @@ with dai.Device(pipeline) as device:
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
             # prepare json file to send with TCP
-            dim = {"xmax": detection.xmax, "xmin": detection.xmin, "ymax": detection.ymax, "ymin": detection.ymin}
+            dim = {"xmax": detection.xmax, "xmin": detection.xmin, "ymax": detection.ymax, "ymin": detection.ymin,
+                   "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y)}
             send[label].append(dim)
 
         # send json format detection
@@ -227,13 +237,18 @@ with dai.Device(pipeline) as device:
         cv2.imshow("frame", frame)
         server_HTTP.frametosend = frame
 
-        # todo calculate new points using getPerspectiveTransform()
-
-
         # send birdview camera if perspective calibration was done
         if transform_matrix.any():
+            # transform frame
             transformed_frame = cv2.warpPerspective(frame_cpy, transform_matrix, (W, H))
+
+            # draw circle for every bar recognized in new perspective
+            for choclate_bar_name in send:
+                for detected_bar in send[choclate_bar_name]:
+                    coordinates = detected_bar["middle_transformed"]
+                    cv2.circle(transformed_frame, coordinates, 5, (255, 255, 255), -1)
+
             cv2.imshow("Transformed frame", transformed_frame)
 
-        if cv2.waitKey(1) == ord("q"):
+        if cv2.waitKey(1) & 0xFF == ord("q"):
             break

@@ -39,7 +39,7 @@ with dai.Device(pipeline) as device:
 
         if corners:
             for index, corner in enumerate(corners):
-                cv2.circle(frame, corner, 10, colors[index], -1)
+                cv2.circle(frame, corner, 5, colors[index], -1)
 
         cv2.imshow("frame", frame)
         cv2.setMouseCallback('frame', get_mouse_position)
@@ -56,18 +56,6 @@ with dai.Device(pipeline) as device:
             convert_matrix = np.float32([[0, 0], [0, h], [w, h], [w, 0]])
             point_matrix = np.float32([top_left, bot_left, bot_right, top_right])
             transform_matrix = cv2.getPerspectiveTransform(point_matrix, convert_matrix)
-
-            # search for max height and width
-            w1 = np.sqrt((top_left[0] - top_right[0]) ** 2 + (top_left[1] - top_right[1]) ** 2)
-            w2 = np.sqrt((bot_left[0] - bot_right[0]) ** 2 + (bot_left[1] - bot_right[1]) ** 2)
-            max_width = max(int(w1), int(w2))
-
-            # h1 = np.sqrt((top_left[0] - bot_left[0]) ** 2 + (top_left[1] - bot_left[1]) ** 2)
-            # h2 = np.sqrt((top_right[0] - bot_right[0]) ** 2 + (top_right[1] - bot_right[1]) ** 2)
-
-            # calculate using A3 sheet aspect ratio
-            max_height = int(max_width/math.sqrt(math.pi))
-
             warped = True
 
         elif warped:
@@ -92,16 +80,16 @@ with dai.Device(pipeline) as device:
             )
             cv2.imshow("warped", img_warped)
 
-            if cv2.waitKey(1) == ord("y"):
+            if cv2.waitKey(1) & 0xFF == ord("y"):
                 with open("calibration_result", "wb") as outfile:
                     pickle.dump(transform_matrix, outfile)
                 break
 
-            elif cv2.waitKey(1) == ord("n"):
+            elif cv2.waitKey(1) & 0xFF == ord("n"):
                 corners = []
                 warped = False
 
-        if cv2.waitKey(1) == ord("q"):
+        if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
 cv2.destroyAllWindows()
