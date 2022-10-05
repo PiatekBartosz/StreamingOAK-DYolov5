@@ -205,8 +205,6 @@ with dai.Device(pipeline) as device:
             y1 = int(detection.ymin * height)
             y2 = int(detection.ymax * height)
 
-            # todo calculate real world coordinates
-
             # bbox middle coordinates
             bbox_x, bbox_y = int((x1 + x2) // 2), int((y1 + y2) // 2)
             if transform_matrix.any():
