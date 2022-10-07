@@ -23,6 +23,7 @@ JSON_PORT = 8070
 hostname = socket.gethostname()
 IPAddress = socket.gethostbyname(hostname)
 
+
 class TCPServerRequest(socketserver.BaseRequestHandler):
     def handle(self):
         # first send HTTP header
@@ -52,14 +53,16 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 image.save(self.wfile, 'JPEG')
 
+
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     # Handle request in a separate thread
     pass
 
+
 # enables to stream into two different ports
-def serve_forever(server1,server2):
+def serve_forever(server1, server2):
     while True:
-        r,w,e = select.select([server1,server2],[],[],0)
+        r, w, e = select.select([server1, server2], [], [], 0)
         if server1 in r:
             server1.handle_request()
         if server2 in r:
@@ -69,6 +72,7 @@ def serve_forever(server1,server2):
 def decode_name(label_num):
     decode_labels = {0: "3-bit", 1: "Mars", 2: "Milkyway", 3: "Snickers"}
     return decode_labels[label_num]
+
 
 # open perspective calibration matrix
 with open("perspectiveCalibration/calibration_result", "rb") as infile:
@@ -86,7 +90,6 @@ nnConfig = config.get("nn_config", {})
 # parse input shape
 if "input_size" in nnConfig:
     W, H = tuple(map(int, nnConfig.get("input_size").split('x')))
-
 
 # extract metadata
 metadata = nnConfig.get("NN_specific_metadata", {})
@@ -165,7 +168,6 @@ th3.start()
 
 # Connect to device and start pipeline
 with dai.Device(pipeline) as device:
-
     print(f"DepthAI running. Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(JSON_PORT)}' for detection data in json format.")
@@ -217,8 +219,8 @@ with dai.Device(pipeline) as device:
         height = frame.shape[0]
         width = frame.shape[1]
 
-        send = {"3-bit": [], "Mars": [], "Milkyway": [], "Snickers": []}  
-            
+        send = {"3-bit": [], "Mars": [], "Milkyway": [], "Snickers": []}
+
         for detection in detections:
 
             # Denormalize bounding box
