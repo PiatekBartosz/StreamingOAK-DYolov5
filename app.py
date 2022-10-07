@@ -11,10 +11,11 @@ import blobconverter
 from pathlib import Path
 import numpy as np
 import pickle
-
+import select
 
 # PORTS
 HTTP_SERVER_PORT = 8090
+HTTP_SERVER_PORT2 = 8080
 JSON_PORT = 8070
 
 
@@ -50,6 +51,16 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     # Handle request in a separate thread
     pass
+
+# enables to stream into two different ports
+def serve_forever(server1,server2):
+    while True:
+        r,w,e = select.select([server1,server2],[],[],0)
+        if server1 in r:
+            server1.handle_request()
+        if server2 in r:
+            server2.handle_request()
+
 
 def decode_name(label_num):
     decode_labels = {0: "3-bit", 1: "Mars", 2: "Milkyway", 3: "Snickers"}
@@ -91,7 +102,7 @@ labels = nnMappings.get("labels", {})
 # get model path
 nnPath = Path("best_openvino_2021.4_6shave.blob")
 if not Path(nnPath).exists():
-    print("No blob found at {}. Looking into DepthAI model zoo.".format(nnPath))
+    print("No blob found at {}.".format(nnPath))
 
 # sync outputs
 syncNN = True
@@ -143,10 +154,17 @@ th2 = threading.Thread(target=server_HTTP.serve_forever)
 th2.daemon = True
 th2.start()
 
+server_HTTP2 = ThreadedHTTPServer(('localhost', HTTP_SERVER_PORT2), VideoStreamHandler)
+th3 = threading.Thread(target=server_HTTP2.serve_forever)
+th3.daemon = True
+th3.start()
+
 # Connect to device and start pipeline
 with dai.Device(pipeline) as device:
 
-    print(f"DepthAI running. Navigate to 'localhost:{str(HTTP_SERVER_PORT)}.")
+    print(f"DepthAI running. Navigate to 'localhost:{str(HTTP_SERVER_PORT)}' for normal video stream.")
+    print(f"Navigate to 'localhost:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
+    print(f"Navigate to 'localhost:{str(JSON_PORT)}' for detection data in json format.")
 
     # Output queues will be used to get the rgb frames and nn data from the outputs defined above
     qRgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
@@ -247,6 +265,7 @@ with dai.Device(pipeline) as device:
                     cv2.circle(transformed_frame, coordinates, 5, (255, 255, 255), -1)
 
             cv2.imshow("Transformed frame", transformed_frame)
+            server_HTTP2.frametosend = transformed_frame
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
