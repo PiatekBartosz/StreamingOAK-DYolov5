@@ -12,12 +12,16 @@ from pathlib import Path
 import numpy as np
 import pickle
 import select
+import socket
 
 # PORTS
 HTTP_SERVER_PORT = 8090
 HTTP_SERVER_PORT2 = 8080
 JSON_PORT = 8070
 
+# get user local IP to host over LAN
+hostname = socket.gethostname()
+IPAddress = socket.gethostbyname(hostname)
 
 class TCPServerRequest(socketserver.BaseRequestHandler):
     def handle(self):
@@ -143,18 +147,18 @@ detectionNetwork.passthrough.link(xoutRgb.input)
 detectionNetwork.out.link(nnOut.input)
 
 # start TCP data server
-server_TCP = socketserver.TCPServer(('localhost', JSON_PORT), TCPServerRequest)
+server_TCP = socketserver.TCPServer((IPAddress, JSON_PORT), TCPServerRequest)
 th = threading.Thread(target=server_TCP.serve_forever)
 th.daemon = True
 th.start()
 
 # start MJPEG HTTP Server
-server_HTTP = ThreadedHTTPServer(('localhost', HTTP_SERVER_PORT), VideoStreamHandler)
+server_HTTP = ThreadedHTTPServer((IPAddress, HTTP_SERVER_PORT), VideoStreamHandler)
 th2 = threading.Thread(target=server_HTTP.serve_forever)
 th2.daemon = True
 th2.start()
 
-server_HTTP2 = ThreadedHTTPServer(('localhost', HTTP_SERVER_PORT2), VideoStreamHandler)
+server_HTTP2 = ThreadedHTTPServer((IPAddress, HTTP_SERVER_PORT2), VideoStreamHandler)
 th3 = threading.Thread(target=server_HTTP2.serve_forever)
 th3.daemon = True
 th3.start()
@@ -162,9 +166,9 @@ th3.start()
 # Connect to device and start pipeline
 with dai.Device(pipeline) as device:
 
-    print(f"DepthAI running. Navigate to 'localhost:{str(HTTP_SERVER_PORT)}' for normal video stream.")
-    print(f"Navigate to 'localhost:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
-    print(f"Navigate to 'localhost:{str(JSON_PORT)}' for detection data in json format.")
+    print(f"DepthAI running. Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
+    print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
+    print(f"Navigate to '{str(IPAddress)}:{str(JSON_PORT)}' for detection data in json format.")
 
     # Output queues will be used to get the rgb frames and nn data from the outputs defined above
     qRgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
