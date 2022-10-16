@@ -8,44 +8,49 @@ obj_pickup_height = "+0000"
 error = 100  # how much can differ the real and set position
 queue = [(2500, 5300, 0), (2444, 2555, 1)]  # later will be replaced with vision system return (x, y, type_of)
 
-# put down location coordinates in string format
+# put down location coordinates
 put_location_1 = "+1000+1000"
 put_location_2 = "+1000-1000"
 put_location_3 = "-1000+1000"
 put_location_4 = "-1000-1000"
 
 def handle_communication():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((HOST, PORT))
+    global sock
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((HOST, PORT))
 
-        # set start position
-        sock.sendall(bytes("LIN+4500+0000+0000TOOL", "utf-8"))
-        sock.sendall(bytes("G_P", "utf-8"))
-        recv = str(sock.recv(1024), "utf-8")
-        print("Current position: ", get_coordinates(recv))
-        while queue:
-            pick_up_obj(queue[0][0], queue[0][1], queue[0][2], sock)
-            queue.pop(-1)
+    # set start position
+    sock.sendall(bytes("LIN+4500+0000+0100TOOL", "utf-8"))
+    # print("Current position: ", get_coordinates(recv))
+    while queue:
+        x, y, type_of = queue[0][0], queue[0][1], queue[0][2]
+        commands = create_commands(x, y, type_of)
+
+        while commands:
+            x_set, y_set, z_set = get_coordinates(commands[0])
+            sock.send(bytes(commands[0], "utf-8"))
+            wait_until_achieved_pos(x_set, y_set, z_set)
+            commands.pop(0)
+        queue.pop(-1)
         print("end")
 
 
-# parse x, y, z position from robot callback
+def get_pos():
+    global current_position
+    while thread1.is_alive():
+        sock.send(bytes("G_P", "utf-8"))
+        recv = get_coordinates(sock.recv(128), "utf-8")
+        current_position = recv
+        sleep(0.03)
+
+# parse x, y, z position from robot callbackz
 def get_coordinates(s):
     x = int(s[4:8]) if s[3] == "+" else int(s[3:8]) * (-1)
     y = int(s[9:13]) if s[8] == "+" else int(s[8:13]) * (-1)
     z = int(s[14:18]) if s[13] == "+" else int(s[13:18]) * (-1)
-    # todo convert to number normalize x, y, z and convert back to string
+    # todo convert to number normalize x, y, z
     return x, y, z
 
-
-# creates series of commands that create a trajectory for the robot to pick object
-def pick_up_obj(x, y, type_of, sock):
-    commands = create_commands(x, y, type_of)
-    while commands:
-        x_set, y_set, z_set = get_coordinates(commands[0])
-        sock.sendall(commands[0])
-        wait_unitl_achieved_pos(x_set, y_set, z_set, sock)
-        commands.pop(0)
 
 def create_commands(x, y, type_of):
     commands = []
@@ -88,22 +93,22 @@ def putting_down_command(put_location):
     put_down.append("LIN" + put_location + obj_hover_height + "TOOL")
     return put_down
 
-def wait_unitl_achieved_pos(x_set, y_set, z_set, sock):
-    sock.send(bytes("G_P", "utf-8"))
-    recv = sock.recv(str(sock.recv(1024), "utf-8"))
-    x_curr, y_curr, z_curr = get_coordinates(recv)
-
-    while x_curr-x_set > error or y_curr-y_set > error or z_curr-z_set > error:
-        sock.send(bytes("G_P", "utf-8"))
-        recv = sock.recv(str(sock.recv(1024), "utf-8"))
-        if recv:
-            x_curr, y_curr, z_curr = get_coordinates(recv)
-        sleep(100)
+def wait_until_achieved_pos(x_set, y_set, z_set):
+    x_curr, y_curr, z_curr = current_position
+    while abs(x_curr-x_set) > error or abs(y_curr-y_set) > error or abs(z_curr-z_set) > error:
+        x_curr, y_curr, z_curr = current_position
+        sleep(0.01)
+    return
 
 
 thread1 = Thread(target=handle_communication)
-thread1.daemon == True
+thread1.daemon = True
+
+thread2 = Thread(target=get_pos)
+thread2.daemon = True
+
 thread1.start()
+thread2.start()
 
-
+thread1.join()
 
