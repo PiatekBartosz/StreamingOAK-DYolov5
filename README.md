@@ -8,6 +8,6 @@ Stream OAK-D camera prediction while running a custom Yolov5 model
 ```python3 app.py```
 
 # See result
-Video: [localhost:8090](http://localhost:8090)
+Video: [your_ip:8090](http://localhost:8090)
 Prediction: [localhost:8070](http://localhost:8070)
-Warped video [localhost:8080](http://localhost:8080)
+Warped video [your_ip:8080](http://localhost:8080)

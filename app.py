@@ -19,7 +19,7 @@ HTTP_SERVER_PORT = 8090
 HTTP_SERVER_PORT2 = 8080
 JSON_PORT = 8070
 
-# get user local IP to host over LAN
+# get user local IP to host over LAN the video, note the json file will be hosted over localhost
 hostname = socket.gethostname()
 IPAddress = socket.gethostbyname(hostname)
 
@@ -150,7 +150,7 @@ detectionNetwork.passthrough.link(xoutRgb.input)
 detectionNetwork.out.link(nnOut.input)
 
 # start TCP data server
-server_TCP = socketserver.TCPServer((IPAddress, JSON_PORT), TCPServerRequest)
+server_TCP = socketserver.TCPServer(("localhost", JSON_PORT), TCPServerRequest)
 th = threading.Thread(target=server_TCP.serve_forever)
 th.daemon = True
 th.start()
@@ -170,7 +170,7 @@ th3.start()
 with dai.Device(pipeline) as device:
     print(f"DepthAI running. Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
-    print(f"Navigate to '{str(IPAddress)}:{str(JSON_PORT)}' for detection data in json format.")
+    print(f"Navigate to 'localhost:{str(JSON_PORT)}' for detection data in json format.")
 
     # Output queues will be used to get the rgb frames and nn data from the outputs defined above
     qRgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
@@ -244,6 +244,7 @@ with dai.Device(pipeline) as device:
                         cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
+            # todo offset the middle_transformed by half of the calibration square
             # prepare json file to send with TCP
             dim = {"xmax": detection.xmax, "xmin": detection.xmin, "ymax": detection.ymax, "ymin": detection.ymin,
                    "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y)}

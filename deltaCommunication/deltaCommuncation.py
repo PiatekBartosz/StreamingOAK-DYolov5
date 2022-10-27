@@ -141,6 +141,6 @@ def start():
         execute_command(commands[0])
         commands.pop(0)
 
-start()
-sleep(20)
+# start()
+# sleep(20)
 
