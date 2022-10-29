@@ -1,6 +1,8 @@
 import socket
 from threading import Thread
 from time import sleep
+import json
+import sys
 
 """
     Boundaries for robot delta:
@@ -9,6 +11,10 @@ from time import sleep
         for z == -7000 x and y belongs to [-3000, 3000]
 """
 
+# store predictions acquired by the vision system
+global queue
+queue = []
+# todo set global speed for all commands
 
 class Singleton:
     __instance = None
@@ -24,12 +30,12 @@ class Singleton:
 # used to communicate with robot delta
 class DeltaClient(Singleton):
     sock = None
-    HOST, PORT = "localhost", 2137
+    HOST, PORT = "localhost", 8070
     home_pos = "-2000-2000-4500"
     obj_hover_height = "-4500"
     obj_pickup_height = "-7000"
     offset_threshold = 100  # how much can differ the real and set position
-    sleep_time = 0.2  # how long in seconds will the G_P command be send while checking if achieved position
+    sleep_time = 1  # how long in seconds will the G_P command be send while checking if achieved position
     queue = [(2500, 1300, 0), (2444, 2555, 1), (2444, 2565, 3),
              (2444, -1500, 2)]  # later will be replaced with vision system return (x, y, type_of)
 
@@ -45,7 +51,7 @@ class DeltaClient(Singleton):
 
         if prefix == "G_P":
             self.sock.send("G_P".encode())
-            recv = self.sock.recv(256).decode()
+            recv = self.sock.recv(26).decode()
             return recv
 
         elif prefix == "LIN":
@@ -54,8 +60,10 @@ class DeltaClient(Singleton):
             self.sock.send(command.encode())
             sleep(self.sleep_time)
             while True:
+                self.sock.recv(23) # clear buffer
                 self.sock.send("G_P".encode())
-                recv = self.sock.recv(256).decode()
+                sleep(0.3)
+                recv = self.sock.recv(26).decode()
                 curr_x, curr_y, curr_z = self.get_coordinates(recv)
                 print("Current position: ", curr_x, " ", curr_y, " ", curr_z, " ")
 
@@ -85,18 +93,18 @@ class DeltaClient(Singleton):
     # todo update to enable controlling the suction cup and differentiate between picking up and putting down
     def pick_up_command(self, coordinates):
         pick_up = []
-        pick_up.append("LIN" + coordinates + self.obj_hover_height + "TOOL")
-        pick_up.append("LIN" + coordinates + self.obj_pickup_height + "TOOL")
+        pick_up.append("LIN" + coordinates + self.obj_hover_height + "TOOL_")
+        pick_up.append("LIN" + coordinates + self.obj_pickup_height + "TOOL_")
         pick_up.append("TIM" + str(2000))
-        pick_up.append("LIN" + coordinates + self.obj_hover_height + "TOOL")
+        pick_up.append("LIN" + coordinates + self.obj_hover_height + "TOOL_")
         return pick_up
 
     def putting_down_command(self, put_location):
         put_down = []
-        put_down.append("LIN" + put_location + self.obj_hover_height + "TOOL")
-        put_down.append("LIN" + put_location + self.obj_pickup_height + "TOOL")
+        put_down.append("LIN" + put_location + self.obj_hover_height + "TOOL_")
+        put_down.append("LIN" + put_location + self.obj_pickup_height + "TOOL_")
         put_down.append("TIM" + str(2000))
-        put_down.append("LIN" + put_location + self.obj_hover_height + "TOOL")
+        put_down.append("LIN" + put_location + self.obj_hover_height + "TOOL_")
         return put_down
 
     def get_coordinates(self, s):
@@ -127,7 +135,7 @@ class DeltaClient(Singleton):
                 commands.extend(self.putting_down_command(self.put_location_4))
 
         # return home command
-        commands.append("LIN" + self.home_pos + "TOOL")
+        commands.append("LIN" + self.home_pos + "TOOL_")
         return commands
 
     def start(self):
@@ -137,7 +145,7 @@ class DeltaClient(Singleton):
         print("Connected to delta")
 
         # go home
-        self.execute_command("LIN" + self.home_pos + "TOOL")
+        self.execute_command("LIN" + self.home_pos + "TOOL_")
         commands = []
         for element in self.queue:
             if abs(element[0]) > 3000 or abs(element[1] > 3000):
@@ -153,13 +161,25 @@ class DeltaClient(Singleton):
 # used to communicate with Vision System
 class VisonSystemClient(Singleton):
     sock = None
+    running = False
     HOST, PORT = "localhost", 8070
 
     def start(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((self.HOST, self.PORT))
-        # todo make global variable queue and mutex it (VisionSystemClass will be another thread)
+        self.running = True
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((self.HOST, self.PORT))
+        sleep(1)
+        while True:
+            recv = self.sock.recv(128)
+            print(recv)
+            sleep(10)
 
 
-d2 = DeltaClient()
-d2.start()
+
+d1 = VisonSystemClient()
+d1.start()
+
+
+
+# d2 = DeltaClient()
+# d2.start()

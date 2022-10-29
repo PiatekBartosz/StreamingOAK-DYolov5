@@ -10,7 +10,7 @@ from time import sleep
 """
 
 
-HOST, PORT = "localhost", 2137
+HOST, PORT = "192.168.0.155", 10
 home_pos = "-2000-2000-4500"
 obj_hover_height = "-4500"
 obj_pickup_height = "-7000"
@@ -31,7 +31,7 @@ def execute_command(command):
 
     if prefix == "G_P":
         sock.send("G_P".encode())
-        recv = sock.recv(256).decode()
+        recv = sock.recv(26).decode()
         return recv
 
     elif prefix == "LIN":
@@ -41,7 +41,7 @@ def execute_command(command):
         sleep(sleep_time)
         while True:
             sock.send("G_P".encode())
-            recv = sock.recv(256).decode()
+            recv = sock.recv(26).decode()
             curr_x, curr_y, curr_z = get_coordinates(recv)
             print("Current position: ", curr_x, " ", curr_y, " ", curr_z, " ")
 
@@ -141,6 +141,6 @@ def start():
         execute_command(commands[0])
         commands.pop(0)
 
-# start()
-# sleep(20)
+start()
+sleep(20)
 
