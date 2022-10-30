@@ -1,5 +1,5 @@
 import socket
-from threading import Thread
+import threading
 from time import sleep
 import json
 import sys
@@ -12,8 +12,10 @@ import sys
 """
 
 # store predictions acquired by the vision system
-global queue
+global queue, speed, thread_lock
 queue = []
+queue_lock = threading.Lock()
+
 # todo set global speed for all commands
 
 class Singleton:
@@ -30,7 +32,7 @@ class Singleton:
 # used to communicate with robot delta
 class DeltaClient(Singleton):
     sock = None
-    HOST, PORT = "localhost", 8070
+    HOST, PORT = "localhost", 2137
     home_pos = "-2000-2000-4500"
     obj_hover_height = "-4500"
     obj_pickup_height = "-7000"
@@ -44,6 +46,10 @@ class DeltaClient(Singleton):
     put_location_2 = "+1000-1000"
     put_location_3 = "-1000+1000"
     put_location_4 = "-1000-1000"
+
+    def __del__(self):
+        if self.sock:
+            self.sock.close()
 
     def execute_command(self, command):
         return_value = None
@@ -60,7 +66,7 @@ class DeltaClient(Singleton):
             self.sock.send(command.encode())
             sleep(self.sleep_time)
             while True:
-                self.sock.recv(23) # clear buffer
+                self.sock.recv(23)  # clear buffer
                 self.sock.send("G_P".encode())
                 sleep(0.3)
                 recv = self.sock.recv(26).decode()
@@ -164,22 +170,37 @@ class VisonSystemClient(Singleton):
     running = False
     HOST, PORT = "localhost", 8070
 
-    def start(self):
-        self.running = True
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((self.HOST, self.PORT))
-        sleep(1)
-        while True:
-            recv = self.sock.recv(128)
-            print(recv)
-            sleep(10)
+    def __init__(self):
+        if self.sock is None:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+    def start(self):
+        try:
+            self.sock.connect((self.HOST, self.PORT))
+            self.sock.recv(1024) # clear buffer, skip header
+        except Exception as e:
+            print(e)
+
+    def get_data(self):
+        recv = self.sock.recv(1024).decode()
+
+        # parse the input
+        # endl = recv_str.find("\n")
+        # striped_str = recv_str[:endl].replace("\r")
+
+        json_data = json.loads(recv)
+        print(json_data)
+
+    def __del__(self):
+        if self.sock:
+            self.sock.close()
 
 
 d1 = VisonSystemClient()
 d1.start()
-
-
+while True:
+    d1.get_data()
+    sleep(1)  # how often should the queue be updated
 
 # d2 = DeltaClient()
 # d2.start()
