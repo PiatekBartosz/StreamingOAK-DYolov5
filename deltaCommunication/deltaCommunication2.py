@@ -12,15 +12,25 @@ import sys
 """
 
 # store predictions acquired by the vision system
-global queue, speed, thread_lock
+global queue, speed, thread_lock, queue_update_time
 queue = []
 queue_lock = threading.Lock()
+queue_update_time = 1
 
-# todo set global speed for all commands
+"""
+(x_pos, y_pos, type_of_chocolate_bar)
+type_of_chocolate_bar:
+    0 -> 3-bit
+    1 -> Mars
+    2 -> Milkyway
+    3 -> Snickers
+"""
+
+
+# todo parse the arguments to see if we want to use simulation or real delta set global speed for all commands
 
 class Singleton:
     __instance = None
-
     def __new__(cls):
         if cls.__instance is None:
             # __new__ method static method, doesn't take self
@@ -29,7 +39,6 @@ class Singleton:
         return cls.__instance
 
 
-# used to communicate with robot delta
 class DeltaClient(Singleton):
     sock = None
     HOST, PORT = "localhost", 2137
@@ -38,8 +47,6 @@ class DeltaClient(Singleton):
     obj_pickup_height = "-7000"
     offset_threshold = 100  # how much can differ the real and set position
     sleep_time = 1  # how long in seconds will the G_P command be send while checking if achieved position
-    queue = [(2500, 1300, 0), (2444, 2555, 1), (2444, 2565, 3),
-             (2444, -1500, 2)]  # later will be replaced with vision system return (x, y, type_of)
 
     # put down location coordinates
     put_location_1 = "+1000+1000"
@@ -153,7 +160,9 @@ class DeltaClient(Singleton):
         # go home
         self.execute_command("LIN" + self.home_pos + "TOOL_")
         commands = []
-        for element in self.queue:
+
+        # create commands to move every detected object
+        for element in queue:
             if abs(element[0]) > 3000 or abs(element[1] > 3000):
                 continue
             commands.extend(self.create_commands(element[0], element[1], element[2]))
@@ -162,6 +171,7 @@ class DeltaClient(Singleton):
         while commands:
             self.execute_command(commands[0])
             commands.pop(0)
+# used to communicate with robot delta
 
 
 # used to communicate with Vision System
@@ -173,34 +183,87 @@ class VisonSystemClient(Singleton):
     def __init__(self):
         if self.sock is None:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    def start(self):
-        try:
-            self.sock.connect((self.HOST, self.PORT))
-            self.sock.recv(1024) # clear buffer, skip header
-        except Exception as e:
-            print(e)
-
-    def get_data(self):
-        recv = self.sock.recv(1024).decode()
-
-        # parse the input
-        # endl = recv_str.find("\n")
-        # striped_str = recv_str[:endl].replace("\r")
-
-        json_data = json.loads(recv)
-        print(json_data)
+            self.running = True
 
     def __del__(self):
         if self.sock:
             self.sock.close()
 
+    def start(self):
+        try:
+            self.sock.connect((self.HOST, self.PORT))
+            self.sock.recv(1024)  # clear buffer, skip header
+            print("Connected to server")
+        except Exception as e:
+            print(e)
+
+    def get_data(self):
+        self.sock.recv(1024).decode()  # clear buffer
+        recv_str = self.sock.recv(2048).decode()
+        # print("Recived data: ", recv_str)
+
+        # parse the input
+        splited_str = recv_str.split("\n")
+        for s in splited_str:
+            s_replaced = s.replace("\r", "")
+
+            # compute only first valid input
+            if self.is_valid_json(s_replaced):
+                self.parse_data_from_string(s_replaced)
+                break
+
+        # endl = recv_str.find("\n")
+        # striped_str = recv_str[:endl - 1]
+        # print(striped_str, " ", type(striped_str))
+        # try:
+        #     json_data = json.loads(striped_str)
+        #     print("From Vision System: ",  json_data)
+        #
+        # except:
+        #     print("___")
+        #     pass
+        # if isinstance(striped_str, str) and striped_str[0] == "{" and striped_str[]:
+        #     json_data = json.loads(striped_str)
+        #     print("From Vision System: ",  json_data)
+        # else:
+        #     print("Not a string: ", striped_str)
+        # queue_lock.acquire()
+
+    def is_valid_json(self, s):
+        if len(s) < 65:
+            return False
+        if s[0] != "{" or s[-1] != "}":
+            return False
+        return True
+
+
+    def parse_data_from_string(self, s_replaced):
+        dic = json.loads(s_replaced)
+        local_queue = []
+        for index, (name, detections) in enumerate(dic.items()):
+            if detections:
+                for detection in detections:
+                    x, y = detection['middle_transformed']
+                    # normalize x, y
+                    if 0 <= x <= 416 and 0 <= x <= 416:
+                        x = x / 416
+                        y = y / 416
+                        local_queue.append((x, y, index))
+
+
+        queue_lock.acquire()
+        queue = local_queue
+        print(queue)
+        queue_lock.release()
+
+
 
 d1 = VisonSystemClient()
 d1.start()
-while True:
+while d1.running:
     d1.get_data()
-    sleep(1)  # how often should the queue be updated
+    print("Current queue state: ", queue)
+    sleep(queue_update_time)  # how often should the queue be updated
 
 # d2 = DeltaClient()
 # d2.start()
