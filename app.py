@@ -13,6 +13,7 @@ import numpy as np
 import pickle
 import select
 import socket
+import sys
 
 # PORTS
 HTTP_SERVER_PORT = 8090
@@ -250,8 +251,10 @@ with dai.Device(pipeline) as device:
                    "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y)}
             send[label].append(dim)
 
-        # send json format detection
+        # send json format detection with information about message size
         json_send = json.dumps(send)
+        # json_size = sys.getsizeof(json_send)
+        # json_message = str(json_size) + "_" + json_send
         server_TCP.datatosend = json_send
 
         # send normal view camera
