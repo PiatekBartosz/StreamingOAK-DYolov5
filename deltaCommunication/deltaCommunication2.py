@@ -17,7 +17,6 @@ import sys
 
 # store predictions acquired by the vision system
 queue = []
-queue_lock = threading.Lock()
 
 """
 (x_pos, y_pos, type_of_chocolate_bar)
@@ -35,7 +34,6 @@ type_of_chocolate_bar:
     Init Vision system
 """
 
-vision_stop = False
 vision_host, vision_port = "localhost", 8070
 vision_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
@@ -48,7 +46,6 @@ except Exception as e:
 # vision system handle
 def get_data():
     global queue
-    global queue_lock
     global vision_sock
     vision_sock.recv(1024).decode()  # clear buffer
     recv_str = vision_sock.recv(2048).decode()
@@ -60,10 +57,8 @@ def get_data():
 
         # compute only first valid input
         if is_valid_json(s_replaced):
-            queue_lock.acquire()
             queue = parse_data_from_string(s_replaced)
             print("Updated queue with: ", queue)
-            queue_lock.release()
             break
 
 
@@ -166,14 +161,14 @@ def execute_command(command):
 # todo update to enable controlling the suction cup and differentiate between picking up and putting down
 def pick_up_command(coordinates):
     pick_up = ["LIN" + coordinates + obj_hover_height + "TOOL_",
-               "LIN" + coordinates + obj_pickup_height + "TOOL_", "TIM" + str(2000),
+               "LIN" + coordinates + obj_pickup_height + "TOOL_", "TIM" + str(500),
                "LIN" + coordinates + obj_hover_height + "TOOL_"]
     return pick_up
 
 
 def putting_down_command(put_location):
     put_down = ["LIN" + put_location + obj_hover_height + "TOOL_",
-                "LIN" + put_location + obj_pickup_height + "TOOL_", "TIM" + str(2000),
+                "LIN" + put_location + obj_pickup_height + "TOOL_", "TIM" + str(500),
                 "LIN" + put_location + obj_hover_height + "TOOL_"]
     return put_down
 
@@ -249,32 +244,22 @@ def get_coordinates(s):
 
 
 def vision_system_loop():
-    while True:
-        get_data()
-
-# todo fix infite loop, set break conditions
-
-def delta_loop():
     global queue
     while True:
-        queue_lock.acquire()
+        get_data()
         if queue:
+            print("starting sorting process")
             sort(queue)
             queue = []
-            break
+            print("returning to data collection mode")
+            sleep(3)
 
-        queue_lock.release()
-        sleep(3)
 
+# todo fix infinite loop, set break conditions
 
 th1 = threading.Thread(target=vision_system_loop)
 th1.start()
-
-th2 = threading.Thread(target=delta_loop)
-th2.start()
-
 th1.join()
-th2.join()
 
 vision_sock.close()
 delta_sock.close()
