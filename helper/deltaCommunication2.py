@@ -3,10 +3,23 @@ import threading
 from time import sleep
 import json
 import sys
+import argparse
 
 """
      This program constantly updates queue for detected chocolate bars, and send move commands to robot delta 
 """
+
+# parser = argparse.ArgumentParser()
+# parser.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
+#                     type=int, choices=[0, 1], default=0)
+#
+# # will be used later after
+# args = parser.parse_args()
+#
+# if args.device == 1:
+#     print("Using real delta")
+# else:
+#     print("Using Godot simulation")
 
 """
     Boundaries for robot delta:
@@ -90,9 +103,10 @@ def is_valid_json(s):
 """
     Init communication with robot delta
 """
-
-# variables used to
-delta_host, delta_port = "localhost", 2137
+if args.device == 1:
+    delta_host, delta_port = "localhost", 10  # todo change for delta ip
+else:
+    delta_host, delta_port = "localhost", 2137
 home_pos = "-2000-2000-4500"
 obj_hover_height = "-4500"
 obj_pickup_height = "-7000"

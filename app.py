@@ -14,16 +14,33 @@ import pickle
 import select
 import socket
 import sys
+import argparse
+from helper import deltaCommuncation as dc
+
+# get user local IP to host over LAN the video, note the json file will be hosted over localhost
+hostname = socket.gethostname()
+IPAddress = socket.gethostbyname(hostname)
+
+# parsing
+parser = argparse.ArgumentParser()
+parser.add_argument("--device", help="Choose delta simulation or real delta (default: simulation)",
+                    type=int, choices=[0, 1], default=0)
+parser.add_argument("--ip", help="Set http server ip-s sending (camera view)", type=str, default=IPAddress)
+parser.add_argument("--vision_only", help="Set 1 for only vision system functionality.",
+                    type=int, choices=[0, 1], default=0)
+
+args = parser.parse_args()
 
 # PORTS
 HTTP_SERVER_PORT = 8090
 HTTP_SERVER_PORT2 = 8080
 JSON_PORT = 8070
 
-# get user local IP to host over LAN the video, note the json file will be hosted over localhost
-hostname = socket.gethostname()
-IPAddress = socket.gethostbyname(hostname)
-
+# using simulation 0 or delta 1
+if args.device == 0:
+    delta_host, delta_port = "localhost", 2137
+else:
+    delta_host, delta_port = "localhost", 10  # todo change localhost for delta ip
 
 class TCPServerRequest(socketserver.BaseRequestHandler):
     def handle(self):
@@ -150,22 +167,44 @@ camRgb.preview.link(detectionNetwork.input)
 detectionNetwork.passthrough.link(xoutRgb.input)
 detectionNetwork.out.link(nnOut.input)
 
-# start TCP data server
-server_TCP = socketserver.TCPServer(("localhost", JSON_PORT), TCPServerRequest)
+# start TCP data server (JSON)
+try:
+    server_TCP = socketserver.TCPServer(("localhost", JSON_PORT), TCPServerRequest)
+except Exception as e:
+    print(e)
+
 th = threading.Thread(target=server_TCP.serve_forever)
 th.daemon = True
 th.start()
 
-# start MJPEG HTTP Server
-server_HTTP = ThreadedHTTPServer((IPAddress, HTTP_SERVER_PORT), VideoStreamHandler)
+# start MJPEG HTTP Servers
+try:
+    server_HTTP = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT), VideoStreamHandler)
+except Exception as e:
+    print(e)
+
 th2 = threading.Thread(target=server_HTTP.serve_forever)
 th2.daemon = True
 th2.start()
 
-server_HTTP2 = ThreadedHTTPServer((IPAddress, HTTP_SERVER_PORT2), VideoStreamHandler)
+try:
+    server_HTTP2 = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT2), VideoStreamHandler)
+except Exception as e:
+    print(e)
+
 th3 = threading.Thread(target=server_HTTP2.serve_forever)
 th3.daemon = True
 th3.start()
+
+try:
+    dc.delta_sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+except Exception as e:
+    print(e)
+
+th3 = threading.Thread(target=dc.vision_system_loop)
+th3.daemon = True
+th3.start()
+
 
 # Connect to device and start pipeline
 with dai.Device(pipeline) as device:
@@ -184,23 +223,6 @@ with dai.Device(pipeline) as device:
     counter = 0
     fps = 0
     color = (255, 255, 255)
-
-    # nn data, being the bounding box locations, are in <0..1> range - they need to be normalized with frame width/height
-    # def frameNorm(frame, bbox):
-    #     normVals = np.full(len(bbox), frame.shape[0])
-    #     normVals[::2] = frame.shape[1]
-    #     return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
-
-    # def displayFrame(name, frame, detections):
-    #     color = (0, 255, 0)
-    #     for detection in detections:
-    #         bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
-    #         cv2.putText(frame, labels[detection.label], (bbox[0] + 10, bbox[1] + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-    #         cv2.putText(frame, f"{int(detection.confidence * 100)}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-    #         cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
-    #
-    #     # Send frame
-    #     frame = cv2.imencode('.jpg', frame)[1].tobytes()
 
     while True:
         inPreview = qRgb.get()
@@ -253,8 +275,6 @@ with dai.Device(pipeline) as device:
 
         # send json format detection with information about message size
         json_send = json.dumps(send)
-        # json_size = sys.getsizeof(json_send)
-        # json_message = str(json_size) + "_" + json_send
         server_TCP.datatosend = json_send
 
         # send normal view camera
