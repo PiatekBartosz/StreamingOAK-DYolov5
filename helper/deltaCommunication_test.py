@@ -81,21 +81,15 @@ def execute_command(command):
         print("Performing: ", command)
         set_x, set_y, set_z = get_coordinates(command)
         sock.send(command.encode())
+
+        sock.recv(23)  # clear buffer
+        sock.send("G_P".encode())
+        sleep(0.3)
+        recv = sock.recv(26).decode()
+        curr_x, curr_y, curr_z = get_coordinates(recv)
+        print("Current position: ", curr_x, " ", curr_y, " ", curr_z, " ")
+        offsets = [abs(set_x - curr_x), abs(set_y - curr_y), abs(set_z - curr_z)]
         sleep(sleep_time)
-        while True:
-            sock.recv(23)  # clear buffer
-            sock.send("G_P".encode())
-            sleep(0.3)
-            recv = sock.recv(26).decode()
-            curr_x, curr_y, curr_z = get_coordinates(recv)
-            print("Current position: ", curr_x, " ", curr_y, " ", curr_z, " ")
-            offsets = [abs(set_x - curr_x), abs(set_y - curr_y), abs(set_z - curr_z)]
-
-            # todo consider checking for moving
-            if max(offsets) <= offset_threshold:
-                break
-
-            sleep(sleep_time)
 
     elif prefix == "TIM":
         timeout = command[3:6]
@@ -115,7 +109,6 @@ def execute_command(command):
     elif prefix == "CIR":
         pass
 
-    sleep(sleep_time)
     return
 
 
@@ -164,14 +157,14 @@ def create_commands(x, y, type_of):
             commands.extend(dropping_down_command(put_location_4))
 
     # return home command
-    commands.append("LIN" + home_pos + "TOOL")
+    commands.append("LIN" + home_pos + "TOOL_")
     return commands
 
 
 def start():
 
     # go home
-    execute_command("LIN" + home_pos + "TOOL")
+    execute_command("LIN" + home_pos + "TOOL_")
     commands = []
     for element in queue:
         if abs(element[0]) > 3000 or abs(element[1] > 3000):
