@@ -83,7 +83,7 @@ def get_data():
             break
 
 
-# vision system helper functions
+# vision system communication functions
 def parse_data_from_string(s_replaced):
     dic = json.loads(s_replaced)
     local_queue = []

@@ -15,7 +15,7 @@ Prediction: [localhost:8070](http://localhost:8070)
 Warped video [your_ip:8080](http://localhost:8080)
 
 # Run automatic sort (need app.py running first)
-```python3 helper/deltaCommunication.py```
+```python3 communication/deltaCommunication.py```
 
 # Run sorting without vision system, hardcoded pickup location
-```python3 helper/deltaCommunication.py```
+```python3 communication/deltaCommunicationNoVS.py```
