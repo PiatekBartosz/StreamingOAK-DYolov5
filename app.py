@@ -15,7 +15,7 @@ import select
 import socket
 import sys
 import argparse
-from helper import deltaCommuncation as dc
+from helper import deltaCommunication as dc
 
 # get user local IP to host over LAN the video, note the json file will be hosted over localhost
 hostname = socket.gethostname()

@@ -5,21 +5,28 @@ import json
 import sys
 import argparse
 
+
+###
+use_godot = False
+###
+
 """
      This program constantly updates queue for detected chocolate bars, and send move commands to robot delta 
 """
 
-# parser = argparse.ArgumentParser()
-# parser.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
-#                     type=int, choices=[0, 1], default=0)
-#
-# # will be used later after
-# args = parser.parse_args()
-#
-# if args.device == 1:
-#     print("Using real delta")
-# else:
-#     print("Using Godot simulation")
+parser = argparse.ArgumentParser()
+parser.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
+                    type=int, choices=[0, 1], default=0)
+
+# will be used later after
+args = parser.parse_args()
+
+if args.device == 1:
+    use_godot = False
+    print("Using real delta")
+else:
+    use_godot = True
+    print("Using Godot simulation")
 
 """
     Boundaries for robot delta:
@@ -53,6 +60,7 @@ try:
     vision_sock.connect((vision_host, vision_port))
     print("Connected to vision system server")
 except Exception as e:
+    print("Not connected with vision system")
     print(e)
 
 
@@ -103,28 +111,41 @@ def is_valid_json(s):
 """
     Init communication with robot delta
 """
+
+# variables used to
+if use_godot:
+    delta_host, delta_port = "localhost", 2137
+else:
+    delta_host, delta_port = "192.168.0.155", 10
+
+home_pos = "-1900-1900-4500"
+
 if args.device == 1:
     delta_host, delta_port = "localhost", 10  # todo change for delta ip
 else:
     delta_host, delta_port = "localhost", 2137
 home_pos = "-2000-2000-4500"
+
 obj_hover_height = "-4500"
-obj_pickup_height = "-7000"
+obj_pickup_height = "-4900"
+obj_drop_down_height = "-4800"
 offset_threshold = 100  # how much can differ the real and set position
 sleep_time = 1  # how long in seconds will the G_P command be send while checking if achieved position
-calibration_box_size = (6000, 6000)  # size of the square that is used when calibrating delta vision system
+calibration_box_size = (3800, 3800)  # size of the square that is used when calibrating delta vision system
+x_orient, y_orient = -1, 1  # x_camera, x_delta relation as well as y_camera, y_delta
 
 # put down location coordinates
-put_location_1 = "+1000+1000"
-put_location_2 = "+1000+1000"
-put_location_3 = "+1000+1000"
-put_location_4 = "+1000+1000"
+put_location_1 = "+1900+1900"
+put_location_2 = "+1900+1900"
+put_location_3 = "+1900+1900"
+put_location_4 = "+1900+1900"
 
 delta_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
     delta_sock.connect((delta_host, delta_port))
     print("Connected with robot delta")
 except Exception as e:
+    print("Not connected with robot delta")
     print(e)
 
 
@@ -158,6 +179,10 @@ def execute_command(command):
                 break
             sleep(sleep_time)
 
+    elif prefix == "REL":
+        delta_sock.send(command.encode())
+        delta_sock.recv(4)
+
     elif prefix == "TIM":
         timeout = command[3:6]
         sleep(int(timeout) // 1000)
@@ -175,15 +200,18 @@ def execute_command(command):
 # todo update to enable controlling the suction cup and differentiate between picking up and putting down
 def pick_up_command(coordinates):
     pick_up = ["LIN" + coordinates + obj_hover_height + "TOOL_",
-               "LIN" + coordinates + obj_pickup_height + "TOOL_", "TIM" + str(500),
+               "LIN" + coordinates + obj_pickup_height + "TOOL_",
+               "RELB",
+               "TIM" + str(100),
                "LIN" + coordinates + obj_hover_height + "TOOL_"]
     return pick_up
 
 
-def putting_down_command(put_location):
-    put_down = ["LIN" + put_location + obj_hover_height + "TOOL_",
-                "LIN" + put_location + obj_pickup_height + "TOOL_", "TIM" + str(500),
-                "LIN" + put_location + obj_hover_height + "TOOL_"]
+def dropping_down_command(drop_location):
+    put_down = ["LIN" + drop_location + obj_hover_height + "TOOL_",
+                "LIN" + drop_location + obj_drop_down_height + "TOOL_",
+                "RELA",
+                "LIN" + drop_location + obj_hover_height + "TOOL_"]
     return put_down
 
 
@@ -214,13 +242,13 @@ def create_commands(x, y, type_of):
     # put down to specific location and go to default position
     match type_of:
         case 0:
-            commands.extend(putting_down_command(put_location_1))
+            commands.extend(dropping_down_command(put_location_1))
         case 1:
-            commands.extend(putting_down_command(put_location_2))
+            commands.extend(dropping_down_command(put_location_2))
         case 2:
-            commands.extend(putting_down_command(put_location_3))
+            commands.extend(dropping_down_command(put_location_3))
         case 3:
-            commands.extend(putting_down_command(put_location_4))
+            commands.extend(dropping_down_command(put_location_4))
 
     # return home command
     commands.append("LIN" + home_pos + "TOOL_")
@@ -231,11 +259,11 @@ def sort(local_queue):
     # create commands to move every detected object
     commands = []
     for element in local_queue:
-        # get x, y, normalize it regarding calib box size
-        x = int(element[0] * calibration_box_size[0] - calibration_box_size[0])
-        y = int(element[1] * calibration_box_size[1] - calibration_box_size[1])
+        # get x, y, normalize it according to calib box size
+        x = int(element[0] * calibration_box_size[0] - calibration_box_size[0]/2) * x_orient
+        y = int(element[1] * calibration_box_size[1] - calibration_box_size[1]/2) * y_orient
 
-        if abs(x) > 3000 or abs(y) > 3000:
+        if abs(x) > 1900 or abs(y) > 1900:
             continue
         commands.extend(create_commands(x, y, element[2]))
     print(commands)
@@ -277,4 +305,3 @@ th1.join()
 
 vision_sock.close()
 delta_sock.close()
-
