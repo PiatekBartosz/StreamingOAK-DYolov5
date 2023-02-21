@@ -1,5 +1,4 @@
 import socket
-from threading import Thread
 from time import sleep
 import argparse
 
@@ -12,12 +11,11 @@ use_godot = False
      This program constantly updates queue for detected chocolate bars, and send move commands to robot delta 
 """
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
+parser_com_VS = argparse.ArgumentParser()
+parser_com_VS.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
                     type=int, choices=[0, 1], default=0)
 
-# will be used later after
-args = parser.parse_args()
+args = parser_com_VS.parse_args()
 
 if args.device == 1:
     use_godot = False
@@ -55,10 +53,11 @@ put_location_4 = "-1000-1000"
 """
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-if args.device == 1:
-    delta_host, delta_port = "localhost", 10  # todo change for delta ip
-else:
+
+if args.device == 0:
     delta_host, delta_port = "localhost", 2137
+else:
+    delta_host, delta_port = "192.168.0.155", 10
 
 try:
     sock.connect((delta_host, delta_port))

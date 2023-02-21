@@ -2,24 +2,23 @@ import socket
 import threading
 from time import sleep
 import json
-import sys
 import argparse
 
 
 ###
-use_godot = False
+use_godot = True
 ###
 
 """
      This program constantly updates queue for detected chocolate bars, and send move commands to robot delta 
 """
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
+parser_com = argparse.ArgumentParser()
+parser_com.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
                     type=int, choices=[0, 1], default=0)
 
 # will be used later after
-args = parser.parse_args()
+args = parser_com.parse_args()
 
 if args.device == 1:
     use_godot = False
@@ -47,15 +46,13 @@ type_of_chocolate_bar:
     3 -> Snickers
 """
 
-# todo parse the arguments to see if we want to use simulation or real delta set global speed for all commands
-
-
 """
     Init Vision system
 """
 
-vision_host, vision_port = "localhost", 8070
+vision_host, vision_port = "127.0.1.1", 8070
 vision_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
 try:
     vision_sock.connect((vision_host, vision_port))
     print("Connected to vision system server")
@@ -124,7 +121,6 @@ if args.device == 1:
     delta_host, delta_port = "localhost", 10  # todo change for delta ip
 else:
     delta_host, delta_port = "localhost", 2137
-home_pos = "-2000-2000-4500"
 
 obj_hover_height = "-4500"
 obj_pickup_height = "-4900"
@@ -296,8 +292,6 @@ def vision_system_loop():
             print("returning to data collection mode")
             sleep(3)
 
-
-# todo fix infinite loop, set break conditions
 
 th1 = threading.Thread(target=vision_system_loop)
 th1.start()

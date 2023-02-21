@@ -15,7 +15,7 @@ import select
 import socket
 import sys
 import argparse
-from communication import deltaCommunication as dc
+
 
 # get user local IP to host over LAN the video, note the json file will be hosted over localhost
 hostname = socket.gethostname()
@@ -25,11 +25,11 @@ IPAddress = socket.gethostbyname(hostname)
 parser = argparse.ArgumentParser()
 parser.add_argument("--device", help="Choose delta simulation or real delta (default: simulation)",
                     type=int, choices=[0, 1], default=0)
-parser.add_argument("--ip", help="Set http server ip-s sending (camera view)", type=str, default=IPAddress)
-parser.add_argument("--vision_only", help="Set 1 for only vision system functionality.",
-                    type=int, choices=[0, 1], default=0)
+parser.add_argument("--ip", help="Set http servers ip-s", type=str, default=IPAddress)
+
 
 args = parser.parse_args()
+
 
 # PORTS
 HTTP_SERVER_PORT = 8090
@@ -38,9 +38,9 @@ JSON_PORT = 8070
 
 # using simulation 0 or delta 1
 if args.device == 0:
-    delta_host, delta_port = "localhost", 2137
+    delta_host, delta_port = "127.0.1.1", 2137
 else:
-    delta_host, delta_port = "localhost", 10  # todo change localhost for delta ip
+    delta_host, delta_port = "192.168.0.155", 10
 
 class TCPServerRequest(socketserver.BaseRequestHandler):
     def handle(self):
@@ -88,7 +88,8 @@ def serve_forever(server1, server2):
 
 
 def decode_name(label_num):
-    decode_labels = {0: "3-bit", 1: "Mars", 2: "Milkyway", 3: "Snickers"}
+    decode_labels = {0: "3-bit", 1: "Mars", 2: "Milkyway", 3: "Snickers", 4: "50white",
+                     5: "black80circ", 6: "black80rect", 7: "white80circ", 8: "white80rect"}
     return decode_labels[label_num]
 
 
@@ -97,7 +98,7 @@ with open("perspectiveCalibration/calibration_result", "rb") as infile:
     transform_matrix = pickle.load(infile)
 
 # parse config
-configPath = Path("json/result_new.json")
+configPath = Path("json/best.json")
 if not configPath.exists():
     raise ValueError("Path {} does not exist!".format(configPath))
 
@@ -124,13 +125,11 @@ print(metadata)
 nnMappings = config.get("mappings", {})
 labels = nnMappings.get("labels", {})
 
+
 # get model path
 nnPath = Path("best_openvino_2021.4_6shave.blob")
 if not Path(nnPath).exists():
     print("No blob found at {}.".format(nnPath))
-
-# sync outputs
-syncNN = True
 
 # Create pipeline
 pipeline = dai.Pipeline()
@@ -169,7 +168,7 @@ detectionNetwork.out.link(nnOut.input)
 
 # start TCP data server (JSON)
 try:
-    server_TCP = socketserver.TCPServer(("localhost", JSON_PORT), TCPServerRequest)
+    server_TCP = socketserver.TCPServer((args.ip, JSON_PORT), TCPServerRequest)
 except Exception as e:
     print(e)
 
@@ -196,21 +195,12 @@ th3 = threading.Thread(target=server_HTTP2.serve_forever)
 th3.daemon = True
 th3.start()
 
-try:
-    dc.delta_sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-except Exception as e:
-    print(e)
-
-th3 = threading.Thread(target=dc.vision_system_loop)
-th3.daemon = True
-th3.start()
-
 
 # Connect to device and start pipeline
 with dai.Device(pipeline) as device:
     print(f"DepthAI running. Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
-    print(f"Navigate to 'localhost:{str(JSON_PORT)}' for detection data in json format.")
+    print(f"Navigate to '{str(delta_host)}:{str(JSON_PORT)}' for detection data in json format.")
 
     # Output queues will be used to get the rgb frames and nn data from the outputs defined above
     qRgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
@@ -242,7 +232,8 @@ with dai.Device(pipeline) as device:
         height = frame.shape[0]
         width = frame.shape[1]
 
-        send = {"3-bit": [], "Mars": [], "Milkyway": [], "Snickers": []}
+        send = {"3-bit": [], "Mars": [], "Milkyway": [], "Snickers": [], "50white": [],
+                "black80circ": [], "black80rect": [], "white80circ": [], "white80rect": []}
 
         for detection in detections:
 
