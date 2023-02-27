@@ -20,7 +20,8 @@ parser_com.add_argument("--device", help="Set 0 for running delta simulation or 
 # will be used later after
 args = parser_com.parse_args()
 
-if args.device == 1:
+# to change
+if args.device == 0:
     use_godot = False
     print("Using real delta")
 else:
@@ -36,6 +37,8 @@ else:
 
 # store predictions acquired by the vision system
 queue = []
+prev_queue = []
+queue_count = 0
 
 """
 (x_pos, y_pos, type_of_chocolate_bar)
@@ -50,7 +53,7 @@ type_of_chocolate_bar:
     Init Vision system
 """
 
-vision_host, vision_port = "127.0.1.1", 8070
+vision_host, vision_port = "127.0.0.1", 8070
 vision_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 try:
@@ -64,9 +67,11 @@ except Exception as e:
 # vision system handle
 def get_data():
     global queue
+    global prev_queue
+    global queue_count
     global vision_sock
-    vision_sock.recv(1024).decode()  # clear buffer
-    recv_str = vision_sock.recv(2048).decode()
+    #vision_sock.recv(2048).decode()  # clear buffer
+    recv_str = vision_sock.recv(1024).decode()
 
     # parse the input
     splitted_str = recv_str.split("\n")
@@ -75,9 +80,21 @@ def get_data():
 
         # compute only first valid input
         if is_valid_json(s_replaced):
-            queue = parse_data_from_string(s_replaced)
-            print("Updated queue with: ", queue)
-            break
+            local_queue = parse_data_from_string(s_replaced)
+
+            if queue_count == 0:
+                queue = local_queue
+                prev_queue = local_queue
+
+            else:
+                if local_queue == prev_queue:
+                    print("Queue not changed")
+                    break
+                else:
+                    prev_queue = queue
+                    queue = local_queue
+                    print("Updated queue: " + str(queue))
+                    break
 
 
 # vision system communication functions
@@ -115,24 +132,19 @@ if use_godot:
 else:
     delta_host, delta_port = "192.168.0.155", 10
 
-home_pos = "-1900-1900-4500"
-
-if args.device == 1:
-    delta_host, delta_port = "localhost", 10  # todo change for delta ip
-else:
-    delta_host, delta_port = "localhost", 2137
+home_pos = "+0000-1900-4500"
 
 obj_hover_height = "-4500"
-obj_pickup_height = "-4900"
-obj_drop_down_height = "-4800"
-offset_threshold = 100  # how much can differ the real and set position
+obj_pickup_height = "-6280"
+obj_drop_down_height = "-5500"
+offset_threshold = 500  # how much can differ the real and set position
 sleep_time = 1  # how long in seconds will the G_P command be send while checking if achieved position
 calibration_box_size = (3800, 3800)  # size of the square that is used when calibrating delta vision system
 x_orient, y_orient = -1, 1  # x_camera, x_delta relation as well as y_camera, y_delta
 
 # put down location coordinates
-put_location_1 = "+1900+1900"
-put_location_2 = "+1900+1900"
+put_location_1 = "-2000-2000"
+put_location_2 = "+2000-2000"
 put_location_3 = "+1900+1900"
 put_location_4 = "+1900+1900"
 
@@ -159,21 +171,21 @@ def execute_command(command):
         print("Performing: ", command)
         set_x, set_y, set_z = get_coordinates(command)
         delta_sock.send(command.encode())
-        sleep(sleep_time)
-        while True:
-            delta_sock.recv(23)  # clear buffer
-            delta_sock.send("G_P".encode())
-            sleep(0.3)
-            recv = delta_sock.recv(26).decode()
-            curr_x, curr_y, curr_z = get_coordinates(recv)
-            print("Current position: ", curr_x, " ", curr_y, " ", curr_z, " ")
-
-            offsets = [abs(set_x - curr_x), abs(set_y - curr_y), abs(set_z - curr_z)]
-
-            # todo consider checking for moving
-            if max(offsets) <= offset_threshold:
-                break
-            sleep(sleep_time)
+        sleep(1)
+        # while True:
+        #     delta_sock.recv(23)  # clear buffer
+        #     delta_sock.send("G_P".encode())
+        #     sleep(0.3)
+        #     recv = delta_sock.recv(26).decode()
+        #     curr_x, curr_y, curr_z = get_coordinates(recv)
+        #     print("Current position: ", curr_x, " ", curr_y, " ", curr_z, " ")
+        #
+        #     offsets = [abs(set_x - curr_x), abs(set_y - curr_y), abs(set_z - curr_z)]
+        #
+        #     # todo consider checking for moving
+        #     if max(offsets) <= offset_threshold:
+        #         break
+        #     sleep(sleep_time)
 
     elif prefix == "REL":
         delta_sock.send(command.encode())
@@ -189,7 +201,7 @@ def execute_command(command):
     elif prefix == "CIR":
         pass
 
-    sleep(sleep_time)
+    sleep(0.3)
     return
 
 
@@ -198,7 +210,6 @@ def pick_up_command(coordinates):
     pick_up = ["LIN" + coordinates + obj_hover_height + "TOOL_",
                "LIN" + coordinates + obj_pickup_height + "TOOL_",
                "RELB",
-               "TIM" + str(100),
                "LIN" + coordinates + obj_hover_height + "TOOL_"]
     return pick_up
 
@@ -213,6 +224,9 @@ def dropping_down_command(drop_location):
 
 def create_commands(x, y, type_of):
     commands = []
+
+    x = (-1)*x
+    y = (-1)*y
 
     if x >= 0:
         x = str(x)
@@ -240,11 +254,22 @@ def create_commands(x, y, type_of):
         case 0:
             commands.extend(dropping_down_command(put_location_1))
         case 1:
-            commands.extend(dropping_down_command(put_location_2))
+            commands.extend(dropping_down_command(put_location_1))
         case 2:
-            commands.extend(dropping_down_command(put_location_3))
+            commands.extend(dropping_down_command(put_location_1))
         case 3:
-            commands.extend(dropping_down_command(put_location_4))
+            commands.extend(dropping_down_command(put_location_1))
+        case 4:
+            commands.extend(dropping_down_command(put_location_1))
+        case 5:
+            commands.extend(dropping_down_command(put_location_1))
+        case 6:
+            commands.extend(dropping_down_command(put_location_2))
+        case 7:
+            commands.extend(dropping_down_command(put_location_1))
+        case 8:
+            commands.extend(dropping_down_command(put_location_2))
+
 
     # return home command
     commands.append("LIN" + home_pos + "TOOL_")
@@ -283,19 +308,25 @@ def get_coordinates(s):
 
 def vision_system_loop():
     global queue
+    global queue_count
+    execute_command("LIN" + home_pos + "TOOL_")
     while True:
         get_data()
+        queue_count += 1
         if queue:
             print("starting sorting process")
             sort(queue)
             queue = []
             print("returning to data collection mode")
             sleep(3)
+            break
+        queue = []
 
+
+vision_system_loop()
 
 th1 = threading.Thread(target=vision_system_loop)
 th1.start()
 th1.join()
-
 vision_sock.close()
 delta_sock.close()

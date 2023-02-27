@@ -24,7 +24,7 @@ IPAddress = socket.gethostbyname(hostname)
 # parsing
 parser = argparse.ArgumentParser()
 parser.add_argument("--device", help="Choose delta simulation or real delta (default: simulation)",
-                    type=int, choices=[0, 1], default=0)
+                    type=int, choices=[0, 1], default=1)
 parser.add_argument("--ip", help="Set http servers ip-s", type=str, default=IPAddress)
 
 
@@ -38,7 +38,7 @@ JSON_PORT = 8070
 
 # using simulation 0 or delta 1
 if args.device == 0:
-    delta_host, delta_port = "127.0.1.1", 2137
+    delta_host, delta_port = "127.0.0.1", 2137
 else:
     delta_host, delta_port = "192.168.0.155", 10
 
@@ -168,7 +168,7 @@ detectionNetwork.out.link(nnOut.input)
 
 # start TCP data server (JSON)
 try:
-    server_TCP = socketserver.TCPServer((args.ip, JSON_PORT), TCPServerRequest)
+    server_TCP = socketserver.TCPServer(("127.0.0.1", JSON_PORT), TCPServerRequest)
 except Exception as e:
     print(e)
 
