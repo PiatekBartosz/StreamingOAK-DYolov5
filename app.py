@@ -7,13 +7,11 @@ from io import BytesIO
 import depthai as dai
 import cv2
 from PIL import Image
-import blobconverter
 from pathlib import Path
 import numpy as np
 import pickle
 import select
 import socket
-import sys
 import argparse
 
 
@@ -23,9 +21,12 @@ IPAddress = socket.gethostbyname(hostname)
 
 # parsing
 parser = argparse.ArgumentParser()
-parser.add_argument("--device", help="Choose delta simulation or real delta (default: simulation)",
+parser.add_argument("--device", help="Choose host: \n"
+                                     "0 - delta simulation\n"
+                                     "1 - real delta",
                     type=int, choices=[0, 1], default=1)
-parser.add_argument("--ip", help="Set http servers ip-s", type=str, default=IPAddress)
+parser.add_argument("--ip", help="Set http and json servers ip-s. The default ip would be localhost",
+                    type=str, default='localhost')
 
 
 args = parser.parse_args()
@@ -36,7 +37,6 @@ HTTP_SERVER_PORT = 8090
 HTTP_SERVER_PORT2 = 8080
 JSON_PORT = 8070
 
-# using simulation 0 or delta 1
 if args.device == 0:
     delta_host, delta_port = "127.0.0.1", 2137
 else:
@@ -258,7 +258,6 @@ with dai.Device(pipeline) as device:
                         cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
-            # todo offset the middle_transformed by half of the calibration square
             # prepare json file to send with TCP
             dim = {"xmax": detection.xmax, "xmin": detection.xmin, "ymax": detection.ymax, "ymin": detection.ymin,
                    "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y)}
