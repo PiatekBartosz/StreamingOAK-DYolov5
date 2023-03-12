@@ -3,97 +3,91 @@ import threading
 from time import sleep
 import json
 import argparse
-
-
-###
-use_godot = True
-###
+from pynput.keyboard import Key, Listener
+import re
 
 parser_com = argparse.ArgumentParser()
 parser_com.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
-                    type=int, choices=[0, 1], default=0)
+                        type=int, choices=[0, 1], default=0)
+parser_com.add_argument("--ip", help="Set ip of vision system host (defult: 127.0.0.1)",
+                        type=str, default="127.0.0.1")
 
-# will be used later after
 args = parser_com.parse_args()
 
-# to change
-if args.device == 0:
-    use_godot = False
-    print("Using real delta")
-else:
-    use_godot = True
-    print("Using Godot simulation")
-
-"""
-    Boundaries for robot delta:
-        z belongs to [-7000, -4000]
-        for z == -4000 x and y belongs to [-3700, 3700]
-        for z == -7000 x and y belongs to [-3000, 3000]
-"""
-
-# store predictions acquired by the vision system
 queue = []
-prev_queue = []
-queue_count = 0
+queue_lock = threading.Lock()
 
 """
-(x_pos, y_pos, type_of_chocolate_bar)
-type_of_chocolate_bar:
-    0 -> 3-bit
-    1 -> Mars
-    2 -> Milkyway
-    3 -> Snickers
+    Values stored in queue:
+    (x_pos, y_pos, type_of_chocolate_bar)
+    type_of_chocolate_bar:
+        0 -> 3-bit
+        1 -> Mars
+        2 -> Milkyway
+        3 -> Snickers
 """
 
 """
     Init Vision system
 """
 
-vision_host, vision_port = "127.0.0.1", 8070
-vision_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
 try:
+    vision_host, vision_port = args.ip, 8070
+    vision_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     vision_sock.connect((vision_host, vision_port))
-    print("Connected to vision system server")
+    print(f"Connected to vision system server ({vision_host},{vision_port})")
+
 except Exception as e:
     print("Not connected with vision system")
     print(e)
 
 
-# vision system handle
-def get_data():
+"""
+    Init communication with robot delta
+"""
+
+try:
+    if args.device == 0:
+        delta_host, delta_port = "localhost", 2137
+    else:
+        delta_host, delta_port = "192.168.0.155", 10
+    delta_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    delta_sock.connect((delta_host, delta_port))
+    print(f"Connected to robot delta: ({delta_host},{delta_port})")
+
+except Exception as e:
+    print("Not connected to robot delta")
+    print(e)
+
+
+"""
+    Vision system loop
+"""
+
+
+def vision_system_loop(queue_lock):
     global queue
-    global prev_queue
-    global queue_count
-    global vision_sock
-    #vision_sock.recv(2048).decode()  # clear buffer
-    recv_str = vision_sock.recv(1024).decode()
-
-    # parse the input
-    splitted_str = recv_str.split("\n")
-    for s in splitted_str:
-        s_replaced = s.replace("\r", "")
-
-        # compute only first valid input
-        if is_valid_json(s_replaced):
-            local_queue = parse_data_from_string(s_replaced)
-
-            if queue_count == 0:
-                queue = local_queue
-                prev_queue = local_queue
-
-            else:
-                if local_queue == prev_queue:
-                    print("Queue not changed")
+    first = True
+    while True:
+        recv = vision_sock.recv(1024).decode()
+        splited_strings = recv.split("\n")
+        for s in splited_strings:
+            s = s.replace("\r", "")
+            if is_valid_json(s):
+                if not queue_lock.locked():
+                    new_queue = parse_data_from_string(s)
+                    with queue_lock:
+                        queue = new_queue
                     break
                 else:
-                    prev_queue = queue
-                    queue = local_queue
-                    print("Updated queue: " + str(queue))
-                    break
+                    continue
 
 
-# vision system communication functions
+def is_valid_json(s):
+    pattern = r'^\{("[\w-]*":\s*.*,?){9}\}$'
+    return re.match(pattern, s)
+
+
 def parse_data_from_string(s_replaced):
     dic = json.loads(s_replaced)
     local_queue = []
@@ -110,24 +104,9 @@ def parse_data_from_string(s_replaced):
     return local_queue
 
 
-def is_valid_json(s):
-    if len(s) < 65:
-        return False
-    if s[0] != "{" or s[-1] != "}":
-        return False
-    return True
-
-
 """
-    Init communication with robot delta
+Sorting loop
 """
-
-# variables used to
-if use_godot:
-    delta_host, delta_port = "localhost", 2137
-else:
-    delta_host, delta_port = "192.168.0.155", 10
-
 home_pos = "+0000-1900-4500"
 
 obj_hover_height = "-4500"
@@ -143,14 +122,6 @@ put_location_1 = "-2000-2000"
 put_location_2 = "+2000-2000"
 put_location_3 = "+1900+1900"
 put_location_4 = "+1900+1900"
-
-delta_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    delta_sock.connect((delta_host, delta_port))
-    print("Connected with robot delta")
-except Exception as e:
-    print("Not connected with robot delta")
-    print(e)
 
 
 def execute_command(command):
@@ -178,7 +149,6 @@ def execute_command(command):
         #
         #     offsets = [abs(set_x - curr_x), abs(set_y - curr_y), abs(set_z - curr_z)]
         #
-        #     # todo consider checking for moving
         #     if max(offsets) <= offset_threshold:
         #         break
         #     sleep(sleep_time)
@@ -201,7 +171,6 @@ def execute_command(command):
     return
 
 
-# todo update to enable controlling the suction cup and differentiate between picking up and putting down
 def pick_up_command(coordinates):
     pick_up = ["LIN" + coordinates + obj_hover_height + "TOOL_",
                "LIN" + coordinates + obj_pickup_height + "TOOL_",
@@ -271,6 +240,13 @@ def create_commands(x, y, type_of):
     return commands
 
 
+def get_coordinates(s):
+    x = int(s[4:8]) if s[3] == "+" else int(s[3:8])
+    y = int(s[9:13]) if s[8] == "+" else int(s[8:13])
+    z = int(s[14:18]) if s[13] == "+" else int(s[13:18])
+    return x, y, z
+
+
 def sort(local_queue):
     # create commands to move every detected object
     commands = []
@@ -289,39 +265,25 @@ def sort(local_queue):
         commands.pop(0)
 
 
-def get_coordinates(s):
-    x = int(s[4:8]) if s[3] == "+" else int(s[3:8])
-    y = int(s[9:13]) if s[8] == "+" else int(s[8:13])
-    z = int(s[14:18]) if s[13] == "+" else int(s[13:18])
-    return x, y, z
-
-
-"""
-    Program thread and loops
-"""
-
-
-def vision_system_loop():
-    global queue
-    global queue_count
-    execute_command("LIN" + home_pos + "TOOL_")
-    while True:
-        get_data()
-        queue_count += 1
-        if queue:
-            print("starting sorting process")
+def on_press(key, ql):
+    print(queue)
+    if key == Key.space:
+        with ql:
+            print("Starting sort, current queue: ", queue)
             sort(queue)
-            queue = []
-            print("returning to data collection mode")
-            sleep(3)
-            break
-        queue = []
 
 
-vision_system_loop()
+def sort_loop(queue_lock):
+    # lambda function in used to pass queue_lock as an argument
+    with Listener(on_press=lambda event: on_press(event, ql=queue_lock)) as listener:
+        listener.join()
 
-th1 = threading.Thread(target=vision_system_loop)
+
+th1 = threading.Thread(target=vision_system_loop, args=(queue_lock,))
 th1.start()
+
+th2 = threading.Thread(target=sort_loop, args=(queue_lock,))
+th2.start()
+
 th1.join()
-vision_sock.close()
-delta_sock.close()
+th2.join()

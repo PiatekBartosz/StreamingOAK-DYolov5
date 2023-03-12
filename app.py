@@ -14,7 +14,6 @@ import select
 import socket
 import argparse
 
-
 # get user local IP to host over LAN the video, note the json file will be hosted over localhost
 hostname = socket.gethostname()
 IPAddress = socket.gethostbyname(hostname)
@@ -24,13 +23,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--device", help="Choose host: \n"
                                      "0 - delta simulation\n"
                                      "1 - real delta",
-                    type=int, choices=[0, 1], default=1)
+                    type=int, choices=[0, 1], default=0)
 parser.add_argument("--ip", help="Set http and json servers ip-s. The default ip would be localhost",
                     type=str, default='localhost')
 
-
 args = parser.parse_args()
-
 
 # PORTS
 HTTP_SERVER_PORT = 8090
@@ -41,6 +38,7 @@ if args.device == 0:
     delta_host, delta_port = "127.0.0.1", 2137
 else:
     delta_host, delta_port = "192.168.0.155", 10
+
 
 class TCPServerRequest(socketserver.BaseRequestHandler):
     def handle(self):
@@ -125,7 +123,6 @@ print(metadata)
 nnMappings = config.get("mappings", {})
 labels = nnMappings.get("labels", {})
 
-
 # get model path
 nnPath = Path("best_openvino_2021.4_6shave.blob")
 if not Path(nnPath).exists():
@@ -194,7 +191,6 @@ except Exception as e:
 th3 = threading.Thread(target=server_HTTP2.serve_forever)
 th3.daemon = True
 th3.start()
-
 
 # Connect to device and start pipeline
 with dai.Device(pipeline) as device:

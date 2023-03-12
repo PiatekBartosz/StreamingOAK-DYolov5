@@ -66,6 +66,7 @@ except Exception as e:
     print("Not connected with robot delta")
     print(e)
 
+
 def execute_command(command):
     global sock
     return_value = None
