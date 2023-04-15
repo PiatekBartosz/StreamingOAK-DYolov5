@@ -8,14 +8,14 @@ import re
 
 parser_com = argparse.ArgumentParser()
 parser_com.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
-                        type=int, choices=[0, 1], default=0)
+                        type=int, choices=[0, 1], default=1)
 parser_com.add_argument("--ip", help="Set ip of vision system host (defult: 127.0.0.1)",
                         type=str, default="127.0.0.1")
 
 args = parser_com.parse_args()
 
 queue = []
-queue_lock = threading.Lock()
+queue_lock   = threading.Lock()
 
 """
     Values stored in queue:
@@ -82,7 +82,6 @@ def vision_system_loop(queue_lock):
                 else:
                     continue
 
-
 def is_valid_json(s):
     pattern = r'^\{("[\w-]*":\s*.*,?){9}\}$'
     return re.match(pattern, s)
@@ -118,9 +117,9 @@ calibration_box_size = (3800, 3800)  # size of the square that is used when cali
 x_orient, y_orient = -1, 1  # x_camera, x_delta relation as well as y_camera, y_delta
 
 # put down location coordinates
-put_location_1 = "-2000-2000"
-put_location_2 = "+2000-2000"
-put_location_3 = "+1900+1900"
+put_location_1 = "-2641-1770"
+put_location_2 = "+2480-1745"
+put_location_3 = "+0534+3929"
 put_location_4 = "+1900+1900"
 
 
@@ -135,27 +134,24 @@ def execute_command(command):
         return recv
 
     elif prefix == "LIN":
+        # add velocity
         print("Performing: ", command)
-        set_x, set_y, set_z = get_coordinates(command)
-        delta_sock.send(command.encode())
-        sleep(1)
-        # while True:
-        #     delta_sock.recv(23)  # clear buffer
-        #     delta_sock.send("G_P".encode())
-        #     sleep(0.3)
-        #     recv = delta_sock.recv(26).decode()
-        #     curr_x, curr_y, curr_z = get_coordinates(recv)
-        #     print("Current position: ", curr_x, " ", curr_y, " ", curr_z, " ")
-        #
-        #     offsets = [abs(set_x - curr_x), abs(set_y - curr_y), abs(set_z - curr_z)]
-        #
-        #     if max(offsets) <= offset_threshold:
-        #         break
-        #     sleep(sleep_time)
+        delta_sock.send(command.encode())  # send LIN command
+        sleep(0.3)
+        delta_sock.recv(28)  # clear LIN return value
+        while True:
+            delta_sock.send("G_P".encode())
+            sleep(0.3)
+            recv = delta_sock.recv(23).decode()
+            if recv[-3] == "N":
+                break
 
     elif prefix == "REL":
+        sleep(0.3)
         delta_sock.send(command.encode())
+        sleep(0.3)
         delta_sock.recv(4)
+        sleep(0.3)
 
     elif prefix == "TIM":
         timeout = command[3:6]
@@ -167,31 +163,34 @@ def execute_command(command):
     elif prefix == "CIR":
         pass
 
-    sleep(0.3)
     return
 
 
 def pick_up_command(coordinates):
-    pick_up = ["LIN" + coordinates + obj_hover_height + "TOOL_",
-               "LIN" + coordinates + obj_pickup_height + "TOOL_",
+    pick_up = ["LIN" + coordinates + obj_hover_height + "TOOL_" + "V0030",
+               "LIN" + coordinates + obj_pickup_height + "TOOL_" + "V0030",
                "RELB",
-               "LIN" + coordinates + obj_hover_height + "TOOL_"]
+               "LIN" + coordinates + obj_hover_height + "TOOL_" + "V0010"]
     return pick_up
 
 
 def dropping_down_command(drop_location):
-    put_down = ["LIN" + drop_location + obj_hover_height + "TOOL_",
-                "LIN" + drop_location + obj_drop_down_height + "TOOL_",
+    put_down = ["LIN" + drop_location + obj_hover_height + "TOOL_" + "V0010",
+                "LIN" + drop_location + obj_drop_down_height + "TOOL_" + "V0010",
                 "RELA",
-                "LIN" + drop_location + obj_hover_height + "TOOL_"]
+                "LIN" + drop_location + obj_hover_height + "TOOL_" + "V0030"]
     return put_down
 
 
 def create_commands(x, y, type_of):
     commands = []
 
-    x = (-1)*x
-    y = (-1)*y
+    # the is not aligned with y-axis
+    x_offset = 0
+    y_offset = 200
+
+    x = (-1)*x + x_offset
+    y = (-1)*y + y_offset
 
     if x >= 0:
         x = str(x)
@@ -219,15 +218,15 @@ def create_commands(x, y, type_of):
         case 0:
             commands.extend(dropping_down_command(put_location_1))
         case 1:
-            commands.extend(dropping_down_command(put_location_1))
+            commands.extend(dropping_down_command(put_location_2))
         case 2:
-            commands.extend(dropping_down_command(put_location_1))
+            commands.extend(dropping_down_command(put_location_3))
         case 3:
-            commands.extend(dropping_down_command(put_location_1))
+            commands.extend(dropping_down_command(put_location_3))
         case 4:
-            commands.extend(dropping_down_command(put_location_1))
+            commands.extend(dropping_down_command(put_location_3))
         case 5:
-            commands.extend(dropping_down_command(put_location_1))
+            commands.extend(dropping_down_command(put_location_2))
         case 6:
             commands.extend(dropping_down_command(put_location_2))
         case 7:
@@ -236,7 +235,7 @@ def create_commands(x, y, type_of):
             commands.extend(dropping_down_command(put_location_2))
 
     # return home command
-    commands.append("LIN" + home_pos + "TOOL_")
+    commands.append("LIN" + home_pos + "TOOL_" + "V0030")
     return commands
 
 
@@ -251,6 +250,7 @@ def sort(local_queue):
     # create commands to move every detected object
     commands = []
     for element in local_queue:
+
         # get x, y, normalize it according to calib box size
         x = int(element[0] * calibration_box_size[0] - calibration_box_size[0]/2) * x_orient
         y = int(element[1] * calibration_box_size[1] - calibration_box_size[1]/2) * y_orient
@@ -269,14 +269,14 @@ def on_press(key, ql):
     print(queue)
     if key == Key.space:
         with ql:
-            print("Starting sort, current queue: ", queue)
             sort(queue)
+            print("Starting sort, current queue: ", queue)
 
 
 def sort_loop(queue_lock):
     # lambda function in used to pass queue_lock as an argument
-    with Listener(on_press=lambda event: on_press(event, ql=queue_lock)) as listener:
-        listener.join()
+        with Listener(on_press=lambda event: on_press(event, ql=queue_lock)) as listener:
+            listener.join()
 
 
 th1 = threading.Thread(target=vision_system_loop, args=(queue_lock,))

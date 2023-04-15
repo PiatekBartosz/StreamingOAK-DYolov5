@@ -13,7 +13,7 @@ use_godot = False
 
 parser_com_VS = argparse.ArgumentParser()
 parser_com_VS.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
-                    type=int, choices=[0, 1], default=0)
+                    type=int, choices=[0, 1], default=1)
 
 args = parser_com_VS.parse_args()
 
