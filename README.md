@@ -1,5 +1,6 @@
 # Streaming OAK-D prediction and TCP communication with robot Delta
 Stream OAK-D camera prediction while running a custom Yolov5 model
+This repository is used is used for autonomous sorting of choclate bars by delta type robot
 
 # Installation
 ```python3 -m pip install -r requirements.txt```
