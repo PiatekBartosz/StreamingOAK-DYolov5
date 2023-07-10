@@ -1,6 +1,7 @@
 import socket
 from time import sleep
 import argparse
+import re
 
 
 ###
@@ -13,7 +14,7 @@ use_godot = False
 
 parser_com_VS = argparse.ArgumentParser()
 parser_com_VS.add_argument("--device", help="Set 0 for running delta simulation or 1 for running on real delta",
-                    type=int, choices=[0, 1], default=1)
+                    type=int, choices=[0, 1], default=0)
 
 args = parser_com_VS.parse_args()
 
@@ -40,7 +41,7 @@ obj_pickup_height = "-4900"
 obj_drop_down_height = "-4800"
 offset_threshold = 100  # how much can differ the real and set position
 sleep_time = 0.2  # how long in seconds will the G_P command be send while checking if achieved position
-queue = [(1900, 1300, 0), (1000, 0, 1), (50, 50, 3), (-50, -1500, 2)]  # later will be replaced with vision system return (x, y, type_of)
+queue = [(1000, 0, 1), (50, 50, 3), (-50, -1500, 2), (-50, -1500, 1), (-50, -1500, 0), (-50, -1500, 0), (-50, -1500, 0)]  # later will be replaced with vision system return (x, y, type_of)
 
 # put down location coordinates
 put_location_1 = "+1000+1000"
@@ -139,8 +140,30 @@ def get_coordinates(s):
 def create_commands(x, y, type_of):
     commands = []
 
-    x = "+" + str(x) if x >= 0 else str(x)
-    y = "+" + str(y) if y >= 0 else str(y)
+    x_offset = 0
+    y_offset = 200
+
+    x = (-1)*x + x_offset
+    y = (-1)*y + y_offset
+
+    if x >= 0:
+        x = str(x)
+        missing = 4 - len(x)  # we want to achieve 4 digit format
+        x = "+" + "0" * missing + x
+    else:
+        x = str(x)[1:]
+        missing = 4 - len(x)
+        x = "-" + "0" * missing + x
+
+    if y >= 0:
+        y = str(y)
+        missing = 4 - len(y)  # we want to achieve 4 digit format
+        y = "+" + "0" * missing + y
+    else:
+        y = str(y)[1:]
+        missing = 4 - len(y)
+        y = "-" + "0" * missing + y
+
 
     # pick up object
     commands.extend(pick_up_command(x + y))
@@ -178,4 +201,4 @@ def start():
 
 
 start()
-sleep(20)
+print("End of sorting")
