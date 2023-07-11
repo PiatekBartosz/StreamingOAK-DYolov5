@@ -25,14 +25,17 @@ camRgb = pipeline.create(dai.node.ColorCamera)
 monoLeft = pipeline.create(dai.node.MonoCamera)
 monoRight = pipeline.create(dai.node.MonoCamera)
 stereo = pipeline.create(dai.node.StereoDepth)
+imageWarp = pipeline.create(dai.node.Warp)
 
 # outputs nodes
 nnNetworkOut = pipeline.create(dai.node.XLinkOut)
+xoutRgbWarped = pipeline.create(dai.node.XLinkOut)
 xoutRgb = pipeline.create(dai.node.XLinkOut)
 xoutNN = pipeline.create(dai.node.XLinkOut)
 xoutDepth = pipeline.create(dai.node.XLinkOut)
 
 xoutRgb.setStreamName("rgb")
+xoutRgbWarped.setStreamName("rgbWarped")
 xoutNN.setStreamName("detections")
 xoutDepth.setStreamName("depth")
 nnNetworkOut.setStreamName("nnNetwork")
@@ -83,8 +86,8 @@ if nnConfig:
 # spatial Yolo detection parameters
 yoloSpatial.input.setBlocking(False)
 yoloSpatial.setBoundingBoxScaleFactor(0.5)
-yoloSpatial.setDepthLowerThreshold(100) # Min 10 centimeters
-yoloSpatial.setDepthUpperThreshold(5000) # Max 5 meters
+yoloSpatial.setDepthLowerThreshold(100)  # Min 10 centimeters
+yoloSpatial.setDepthUpperThreshold(5000)  # Max 5 meters
 
 # configure Yolo
 yoloSpatial.setNumClasses(nnConfig["NN_specific_metadata"]["classes"])
@@ -98,13 +101,39 @@ yoloSpatial.setConfidenceThreshold(nnConfig["NN_specific_metadata"]["confidence_
 labels = config["mappings"]["labels"]
 
 """
+    Perspective warping parameters
+"""
+# open points for image warping
+with open("perspectiveCalibration/calibration_dai_result", "rb") as file:
+    top_left, top_right, bot_left, bot_right = pickle.load(file)
+
+# setup warp parameters
+p1 = dai.Point2f(top_left[0], top_left[1])
+p2 = dai.Point2f(top_right[0], top_right[1])
+p3 = dai.Point2f(bot_left[0], bot_left[1])
+p4 = dai.Point2f(bot_right[0], bot_right[1])
+
+# p1 = dai.Point2f(20, 20)
+# p2 = dai.Point2f(20, 460)
+# p3 = dai.Point2f(460, 20)
+# p4 = dai.Point2f(460, 300)
+
+imageWarp.setWarpMesh([p1, p3, p2, p4], 2, 2)
+imageWarp.setOutputSize(camRgb.getPreviewWidth(), camRgb.getPreviewHeight())
+imageWarp.setMaxOutputFrameSize(416*416*3)
+imageWarp.setHwIds([1])
+imageWarp.setInterpolation(dai.node.Warp.Properties.Interpolation.BICUBIC)
+
+"""
     Link pipeline nodes
 """
 monoLeft.out.link(stereo.left)
 monoRight.out.link(stereo.right)
 
 camRgb.preview.link(yoloSpatial.input)
-yoloSpatial.passthrough.link(xoutRgb.input) # TODO should be sync with detection ?
+camRgb.preview.link(imageWarp.inputImage)
+imageWarp.out.link(xoutRgbWarped.input)
+yoloSpatial.passthrough.link(xoutRgb.input)  # TODO should be sync with detection ?
 
 yoloSpatial.out.link(xoutNN.input)
 
@@ -116,6 +145,7 @@ yoloSpatial.outNetwork.link(nnNetworkOut.input)
 with dai.Device(pipeline) as device:
     # output queues will be used to get the rgb frames and nn data from the outputs defined above
     previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
+    previewWarpedQueue = device.getOutputQueue(name="rgbWarped", maxSize=4, blocking=False)
     detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
     depthQueue = device.getOutputQueue(name="depth", maxSize=4, blocking=False)
     networkQueue = device.getOutputQueue(name="nnNetwork", maxSize=4, blocking=False)
@@ -127,11 +157,13 @@ with dai.Device(pipeline) as device:
 
     while True:
         inPreview = previewQueue.get()
+        inWarpedPreview = previewWarpedQueue.get()
         inDet = detectionNNQueue.get()
         depth = depthQueue.get()
         inNN = networkQueue.get()
 
         frame = inPreview.getCvFrame()
+        warpedFrame = inWarpedPreview.getCvFrame()
         depthFrame = depth.getFrame() # depthFrame values are in millimeters
 
         depth_downscaled = depthFrame[::4]
@@ -188,6 +220,7 @@ with dai.Device(pipeline) as device:
         cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
         cv2.imshow("depth", depthFrameColor)
         cv2.imshow("rgb", frame)
+        cv2.imshow("rgbWarped", warpedFrame)
 
         if cv2.waitKey(1) == ord('q'):
             break

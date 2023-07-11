@@ -4,6 +4,7 @@ import numpy as np
 import pickle
 import math
 
+
 print("Mark corners of the warp in this specific order:")
 print("TOP_LEFT, BOT_LEFT, BOT_RIGHT, TOP_RIGHT")\
 
@@ -45,17 +46,25 @@ with dai.Device(pipeline) as device:
         cv2.setMouseCallback('frame', get_mouse_position)
 
         if len(corners) == 4 and not warped:
-            # create point matrix1
+            # create point matrix
             top_left = [corners[0][0], corners[0][1]]
             bot_left = [corners[1][0], corners[1][1]]
             bot_right = [corners[2][0], corners[2][1]]
             top_right = [corners[3][0], corners[3][1]]
 
+            """
+                Create transform matrix used in OpenCV warping 
+            """
             # convert matrix
             h, w, _ = frame.shape
             convert_matrix = np.float32([[0, 0], [0, h], [w, h], [w, 0]])
             point_matrix = np.float32([top_left, bot_left, bot_right, top_right])
             transform_matrix = cv2.getPerspectiveTransform(point_matrix, convert_matrix)
+
+            """
+                Create config for warping with warp node in DepthAi
+            """
+            warp_points = [top_left, bot_left, bot_right, top_right]
             warped = True
 
         elif warped:
@@ -83,6 +92,8 @@ with dai.Device(pipeline) as device:
             if cv2.waitKey(1) & 0xFF == ord("y"):
                 with open("calibration_result", "wb") as outfile:
                     pickle.dump(transform_matrix, outfile)
+                with open("calibration_dai_result", "wb") as dai_outfile:
+                    pickle.dump(warp_points, dai_outfile)
                 break
 
             elif cv2.waitKey(1) & 0xFF == ord("n"):
