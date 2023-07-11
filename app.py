@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from io import BytesIO
 import depthai as dai
 import cv2
-from PIL import Image
+# from PIL import Image
 from pathlib import Path
 import numpy as np
 import pickle
@@ -26,14 +26,27 @@ monoLeft = pipeline.create(dai.node.MonoCamera)
 monoRight = pipeline.create(dai.node.MonoCamera)
 stereo = pipeline.create(dai.node.StereoDepth)
 
-# outputs
-nnOut = pipeline.create(dai.node.XLinkOut)
+# outputs nodes
+nnNetworkOut = pipeline.create(dai.node.XLinkOut)
+xoutRgb = pipeline.create(dai.node.XLinkOut)
+xoutNN = pipeline.create(dai.node.XLinkOut)
+xoutDepth = pipeline.create(dai.node.XLinkOut)
+
+xoutRgb.setStreamName("rgb")
+xoutNN.setStreamName("detections")
+xoutDepth.setStreamName("depth")
+nnNetworkOut.setStreamName("nnNetwork")
+
+"""
+    Define pipeline nodes properties
+"""
 
 # nodes properties
 camRgb.setPreviewSize(416, 416)
-camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_4_K)
+camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
 camRgb.setInterleaved(False)
 camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
+camRgb.setFps(40)
 
 monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
 monoLeft.setCamera("left")
@@ -63,12 +76,11 @@ if not configPath.exists():
 print("Loading Yolo config...")
 with open(configPath) as file:
     config = json.load(file)
-nnConfig = config.get("nn_config", {})
+nnConfig = config["nn_config"]
 if nnConfig:
     print("Successfully loaded config")
 
 # spatial Yolo detection parameters
-yoloSpatial.setConfidenceThreshold(0.5)
 yoloSpatial.input.setBlocking(False)
 yoloSpatial.setBoundingBoxScaleFactor(0.5)
 yoloSpatial.setDepthLowerThreshold(100) # Min 10 centimeters
@@ -80,18 +92,29 @@ yoloSpatial.setCoordinateSize(nnConfig["NN_specific_metadata"]["coordinates"])
 yoloSpatial.setAnchors(nnConfig["NN_specific_metadata"]["anchors"])
 yoloSpatial.setAnchorMasks(nnConfig["NN_specific_metadata"]["anchor_masks"])
 yoloSpatial.setIouThreshold(nnConfig["NN_specific_metadata"]["iou_threshold"])
+yoloSpatial.setConfidenceThreshold(nnConfig["NN_specific_metadata"]["confidence_threshold"])
+
+# get labels
+labels = config["mappings"]["labels"]
 
 """
     Link pipeline nodes
 """
-camRgb.preview.link(yoloSpatial.input)
 monoLeft.out.link(stereo.left)
 monoRight.out.link(stereo.right)
+
+camRgb.preview.link(yoloSpatial.input)
+yoloSpatial.passthrough.link(xoutRgb.input) # TODO should be sync with detection ?
+
+yoloSpatial.out.link(xoutNN.input)
+
 stereo.depth.link(yoloSpatial.inputDepth)
+yoloSpatial.passthroughDepth.link(xoutDepth.input)
+yoloSpatial.outNetwork.link(nnNetworkOut.input)
 
 # connect to device and start pipeline
 with dai.Device(pipeline) as device:
-    # Output queues will be used to get the rgb frames and nn data from the outputs defined above
+    # output queues will be used to get the rgb frames and nn data from the outputs defined above
     previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
     detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
     depthQueue = device.getOutputQueue(name="depth", maxSize=4, blocking=False)
@@ -101,7 +124,6 @@ with dai.Device(pipeline) as device:
     counter = 0
     fps = 0
     color = (255, 255, 255)
-    printOutputLayersOnce = True
 
     while True:
         inPreview = previewQueue.get()
@@ -109,15 +131,8 @@ with dai.Device(pipeline) as device:
         depth = depthQueue.get()
         inNN = networkQueue.get()
 
-        if printOutputLayersOnce:
-            toPrint = 'Output layer names:'
-            for ten in inNN.getAllLayerNames():
-                toPrint = f'{toPrint} {ten},'
-            print(toPrint)
-            printOutputLayersOnce = False;
-
         frame = inPreview.getCvFrame()
-        depthFrame = depth.getFrame()  # depthFrame values are in millimeters
+        depthFrame = depth.getFrame() # depthFrame values are in millimeters
 
         depth_downscaled = depthFrame[::4]
         min_depth = np.percentile(depth_downscaled[depth_downscaled != 0], 1)
@@ -155,20 +170,20 @@ with dai.Device(pipeline) as device:
             y1 = int(detection.ymin * height)
             y2 = int(detection.ymax * height)
             try:
-                label = labelMap[detection.label]
+                label = labels[detection.label]
             except:
                 label = detection.label
-            cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+            cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, f"X: {int(detection.spatialCoordinates.x)} mm", (x1 + 10, y1 + 50),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, f"Y: {int(detection.spatialCoordinates.y)} mm", (x1 + 10, y1 + 65),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, f"Z: {int(detection.spatialCoordinates.z)} mm", (x1 + 10, y1 + 80),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
+            # cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
         cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
         cv2.imshow("depth", depthFrameColor)
@@ -176,4 +191,3 @@ with dai.Device(pipeline) as device:
 
         if cv2.waitKey(1) == ord('q'):
             break
-
