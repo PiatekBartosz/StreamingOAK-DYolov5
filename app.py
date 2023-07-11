@@ -14,208 +14,116 @@ import select
 import socket
 import argparse
 
-# get user local IP to host over LAN the video, note the json file will be hosted over localhost
-hostname = socket.gethostname()
-IPAddress = socket.gethostbyname(hostname)
 
-# parsing
-parser = argparse.ArgumentParser()
-parser.add_argument("--device", help="Choose host: \n"
-                                     "0 - delta simulation\n"
-                                     "1 - real delta",
-                    type=int, choices=[0, 1], default=0)
-parser.add_argument("--ip", help="Set http and json servers ip-s. The default ip would be localhost",
-                    type=str, default='localhost')
-
-args = parser.parse_args()
-
-# PORTS
-HTTP_SERVER_PORT = 8090
-HTTP_SERVER_PORT2 = 8080
-JSON_PORT = 8070
-
-if args.device == 0:
-    delta_host, delta_port = "127.0.0.1", 2137
-else:
-    delta_host, delta_port = "192.168.0.155", 10
-
-
-class TCPServerRequest(socketserver.BaseRequestHandler):
-    def handle(self):
-        # first send HTTP header
-        header = 'HTTP/1.0 200 OK\r\nServer: Mozarella/2.2\r\nAccept-Range: bytes\r\nConnection: close\r\nMax-Age: 0\r\nExpires: 0\r\nCache-Control: no-cache, private\r\nPragma: no-cache\r\nContent-Type: application/json\r\n\r\n'
-        self.request.send(header.encode())
-        while True:
-            time.sleep(0.1)
-            if hasattr(self.server, 'datatosend'):
-                self.request.send(self.server.datatosend.encode() + '\r\n'.encode())
-
-
-class VideoStreamHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=--jpgboundary')
-        self.end_headers()
-        while True:
-            time.sleep(0.1)
-            if hasattr(self.server, 'frametosend'):
-                image = Image.fromarray(cv2.cvtColor(self.server.frametosend, cv2.COLOR_BGR2RGB))
-                stream_file = BytesIO()
-                image.save(stream_file, 'JPEG')
-                self.wfile.write("--jpgboundary".encode())
-
-                self.send_header('Content-type', 'image/jpeg')
-                self.send_header('Content-length', str(stream_file.getbuffer().nbytes))
-                self.end_headers()
-                image.save(self.wfile, 'JPEG')
-
-
-class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
-    # Handle request in a separate thread
-    pass
-
-
-# enables to stream into two different ports
-def serve_forever(server1, server2):
-    while True:
-        r, w, e = select.select([server1, server2], [], [], 0)
-        if server1 in r:
-            server1.handle_request()
-        if server2 in r:
-            server2.handle_request()
-
-
-def decode_name(label_num):
-    decode_labels = {0: "3-bit", 1: "Mars", 2: "Milkyway", 3: "Snickers", 4: "50white",
-                     5: "black80circ", 6: "black80rect", 7: "white80circ", 8: "white80rect"}
-    return decode_labels[label_num]
-
-
-# open perspective calibration matrix
-with open("perspectiveCalibration/calibration_result", "rb") as infile:
-    transform_matrix = pickle.load(infile)
-
-# parse config
-configPath = Path("json/best.json")
-if not configPath.exists():
-    raise ValueError("Path {} does not exist!".format(configPath))
-
-with configPath.open() as f:
-    config = json.load(f)
-nnConfig = config.get("nn_config", {})
-
-# parse input shape
-if "input_size" in nnConfig:
-    W, H = tuple(map(int, nnConfig.get("input_size").split('x')))
-
-# extract metadata
-metadata = nnConfig.get("NN_specific_metadata", {})
-classes = metadata.get("classes", {})
-coordinates = metadata.get("coordinates", {})
-anchors = metadata.get("anchors", {})
-anchorMasks = metadata.get("anchor_masks", {})
-iouThreshold = metadata.get("iou_threshold", {})
-confidenceThreshold = metadata.get("confidence_threshold", {})
-
-print(metadata)
-
-# parse labels
-nnMappings = config.get("mappings", {})
-labels = nnMappings.get("labels", {})
-
-# get model path
-nnPath = Path("best_openvino_2021.4_6shave.blob")
-if not Path(nnPath).exists():
-    print("No blob found at {}.".format(nnPath))
-
-# Create pipeline
+"""
+    Define pipeline & nodes
+"""
 pipeline = dai.Pipeline()
 
-# Define sources and outputs
+yoloSpatial = pipeline.create(dai.node.YoloSpatialDetectionNetwork)
 camRgb = pipeline.create(dai.node.ColorCamera)
-detectionNetwork = pipeline.create(dai.node.YoloDetectionNetwork)
-xoutRgb = pipeline.create(dai.node.XLinkOut)
+monoLeft = pipeline.create(dai.node.MonoCamera)
+monoRight = pipeline.create(dai.node.MonoCamera)
+stereo = pipeline.create(dai.node.StereoDepth)
+
+# outputs
 nnOut = pipeline.create(dai.node.XLinkOut)
 
-xoutRgb.setStreamName("rgb")
-nnOut.setStreamName("nn")
-
-# Properties
-camRgb.setPreviewSize(W, H)
-camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+# nodes properties
+camRgb.setPreviewSize(416, 416)
+camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_4_K)
 camRgb.setInterleaved(False)
 camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
-camRgb.setFps(40)
 
-# Network specific settings
-detectionNetwork.setConfidenceThreshold(confidenceThreshold)
-detectionNetwork.setNumClasses(classes)
-detectionNetwork.setCoordinateSize(coordinates)
-detectionNetwork.setAnchors(anchors)
-detectionNetwork.setAnchorMasks(anchorMasks)
-detectionNetwork.setIouThreshold(iouThreshold)
-detectionNetwork.setBlobPath(nnPath)
-detectionNetwork.setNumInferenceThreads(2)
-detectionNetwork.input.setBlocking(False)
+monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+monoLeft.setCamera("left")
+monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+monoRight.setCamera("right")
 
-# Linking
-camRgb.preview.link(detectionNetwork.input)
-detectionNetwork.passthrough.link(xoutRgb.input)
-detectionNetwork.out.link(nnOut.input)
+# setting node configs
+stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
 
-# start TCP data server (JSON)
-try:
-    server_TCP = socketserver.TCPServer(("127.0.0.1", JSON_PORT), TCPServerRequest)
-except Exception as e:
-    print(e)
+# Align depth map to the perspective of RGB camera, on which inference is done
+stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
+stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
+stereo.setSubpixel(True)
 
-th = threading.Thread(target=server_TCP.serve_forever)
-th.daemon = True
-th.start()
+"""
+    Configure Yolo NN model
+"""
+# blob model path
+yoloSpatial.setBlobPath(Path("config/yoloModel.blob"))
 
-# start MJPEG HTTP Servers
-try:
-    server_HTTP = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT), VideoStreamHandler)
-except Exception as e:
-    print(e)
+# open NN config
+configPath = Path("config/yoloConfig.json")
 
-th2 = threading.Thread(target=server_HTTP.serve_forever)
-th2.daemon = True
-th2.start()
+if not configPath.exists():
+    raise ValueError(f"Path {configPath} does not exist!")
 
-try:
-    server_HTTP2 = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT2), VideoStreamHandler)
-except Exception as e:
-    print(e)
+print("Loading Yolo config...")
+with open(configPath) as file:
+    config = json.load(file)
+nnConfig = config.get("nn_config", {})
+if nnConfig:
+    print("Successfully loaded config")
 
-th3 = threading.Thread(target=server_HTTP2.serve_forever)
-th3.daemon = True
-th3.start()
+# spatial Yolo detection parameters
+yoloSpatial.setConfidenceThreshold(0.5)
+yoloSpatial.input.setBlocking(False)
+yoloSpatial.setBoundingBoxScaleFactor(0.5)
+yoloSpatial.setDepthLowerThreshold(100) # Min 10 centimeters
+yoloSpatial.setDepthUpperThreshold(5000) # Max 5 meters
 
-# Connect to device and start pipeline
+# configure Yolo
+yoloSpatial.setNumClasses(nnConfig["NN_specific_metadata"]["classes"])
+yoloSpatial.setCoordinateSize(nnConfig["NN_specific_metadata"]["coordinates"])
+yoloSpatial.setAnchors(nnConfig["NN_specific_metadata"]["anchors"])
+yoloSpatial.setAnchorMasks(nnConfig["NN_specific_metadata"]["anchor_masks"])
+yoloSpatial.setIouThreshold(nnConfig["NN_specific_metadata"]["iou_threshold"])
+
+"""
+    Link pipeline nodes
+"""
+camRgb.preview.link(yoloSpatial.input)
+monoLeft.out.link(stereo.left)
+monoRight.out.link(stereo.right)
+stereo.depth.link(yoloSpatial.inputDepth)
+
+# connect to device and start pipeline
 with dai.Device(pipeline) as device:
-    print(f"DepthAI running. Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
-    print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
-    print(f"Navigate to '{str(delta_host)}:{str(JSON_PORT)}' for detection data in json format.")
-
     # Output queues will be used to get the rgb frames and nn data from the outputs defined above
-    qRgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
-    qDet = device.getOutputQueue(name="nn", maxSize=4, blocking=False)
-
-    frame = None
-    detections = []
+    previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
+    detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
+    depthQueue = device.getOutputQueue(name="depth", maxSize=4, blocking=False)
+    networkQueue = device.getOutputQueue(name="nnNetwork", maxSize=4, blocking=False)
 
     startTime = time.monotonic()
     counter = 0
     fps = 0
     color = (255, 255, 255)
+    printOutputLayersOnce = True
 
     while True:
-        inPreview = qRgb.get()
-        frame = inPreview.getCvFrame()
+        inPreview = previewQueue.get()
+        inDet = detectionNNQueue.get()
+        depth = depthQueue.get()
+        inNN = networkQueue.get()
 
-        inNN = qDet.get()
-        detections = inNN.detections
+        if printOutputLayersOnce:
+            toPrint = 'Output layer names:'
+            for ten in inNN.getAllLayerNames():
+                toPrint = f'{toPrint} {ten},'
+            print(toPrint)
+            printOutputLayersOnce = False;
+
+        frame = inPreview.getCvFrame()
+        depthFrame = depth.getFrame()  # depthFrame values are in millimeters
+
+        depth_downscaled = depthFrame[::4]
+        min_depth = np.percentile(depth_downscaled[depth_downscaled != 0], 1)
+        max_depth = np.percentile(depth_downscaled, 99)
+        depthFrameColor = np.interp(depthFrame, (min_depth, max_depth), (0, 255)).astype(np.uint8)
+        depthFrameColor = cv2.applyColorMap(depthFrameColor, cv2.COLORMAP_HOT)
 
         counter += 1
         current_time = time.monotonic()
@@ -224,64 +132,48 @@ with dai.Device(pipeline) as device:
             counter = 0
             startTime = current_time
 
-        # if the frame is available, draw bbox-es on it and show
+        detections = inDet.detections
+
+        # If the frame is available, draw bounding boxes on it and show the frame
         height = frame.shape[0]
         width = frame.shape[1]
-
-        send = {"3-bit": [], "Mars": [], "Milkyway": [], "Snickers": [], "50white": [],
-                "black80circ": [], "black80rect": [], "white80circ": [], "white80rect": []}
-
         for detection in detections:
+            roiData = detection.boundingBoxMapping
+            roi = roiData.roi
+            roi = roi.denormalize(depthFrameColor.shape[1], depthFrameColor.shape[0])
+            topLeft = roi.topLeft()
+            bottomRight = roi.bottomRight()
+            xmin = int(topLeft.x)
+            ymin = int(topLeft.y)
+            xmax = int(bottomRight.x)
+            ymax = int(bottomRight.y)
+            cv2.rectangle(depthFrameColor, (xmin, ymin), (xmax, ymax), color, 1)
 
             # Denormalize bounding box
             x1 = int(detection.xmin * width)
             x2 = int(detection.xmax * width)
             y1 = int(detection.ymin * height)
             y2 = int(detection.ymax * height)
-
-            # bbox middle coordinates
-            bbox_x, bbox_y = int((x1 + x2) // 2), int((y1 + y2) // 2)
-            if transform_matrix.any():
-                # if perspective calibration was done calculate detection (x,y) on warped img
-                t_bbox_x, t_bbox_y, scale = np.matmul(transform_matrix, np.float32([bbox_x, bbox_y, 1]))
-                t_bbox_x, t_bbox_y = int(t_bbox_x / scale), int(t_bbox_y / scale)
-            else:
-                t_bbox_x, t_bbox_y = 0, 0
-
-            label = decode_name(detection.label)
-            cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+            try:
+                label = labelMap[detection.label]
+            except:
+                label = detection.label
+            cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
             cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+            cv2.putText(frame, f"X: {int(detection.spatialCoordinates.x)} mm", (x1 + 10, y1 + 50),
+                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+            cv2.putText(frame, f"Y: {int(detection.spatialCoordinates.y)} mm", (x1 + 10, y1 + 65),
+                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+            cv2.putText(frame, f"Z: {int(detection.spatialCoordinates.z)} mm", (x1 + 10, y1 + 80),
+                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
-            # prepare json file to send with TCP
-            dim = {"xmax": detection.xmax, "xmin": detection.xmin, "ymax": detection.ymax, "ymin": detection.ymin,
-                   "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y)}
-            send[label].append(dim)
-
-        # send json format detection with information about message size
-        json_send = json.dumps(send)
-        server_TCP.datatosend = json_send
-
-        # send normal view camera
         cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
-        frame_cpy = frame
-        cv2.imshow("frame", frame)
-        server_HTTP.frametosend = frame
+        cv2.imshow("depth", depthFrameColor)
+        cv2.imshow("rgb", frame)
 
-        # send birdview camera if perspective calibration was done
-        if transform_matrix.any():
-            # transform frame
-            transformed_frame = cv2.warpPerspective(frame_cpy, transform_matrix, (W, H))
-
-            # draw circle for every bar recognized in new perspective
-            for choclate_bar_name in send:
-                for detected_bar in send[choclate_bar_name]:
-                    coordinates = detected_bar["middle_transformed"]
-                    cv2.circle(transformed_frame, coordinates, 5, (255, 255, 255), -1)
-
-            cv2.imshow("Transformed frame", transformed_frame)
-            server_HTTP2.frametosend = transformed_frame
-
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        if cv2.waitKey(1) == ord('q'):
             break
+
