@@ -189,7 +189,7 @@ except Exception as e:
 
 # connect to device and start pipeline
 with dai.Device(pipeline) as device:
-    print(f"DepthAI running. Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
+    print(f"DepthAI running. \nNavigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
     print(f"Navigate to '{str(delta_host)}:{str(JSON_PORT)}' for detection data in json format.")
