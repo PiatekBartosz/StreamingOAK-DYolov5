@@ -13,7 +13,6 @@ Video: [your_ip:8090](http://localhost:8090)
 
 Prediction: [localhost:8070](http://localhost:8070)
 
-Warped video [your_ip:8080](http://localhost:8080)
 
 # Run automatic sort (need app.py running first)
 ```python3 communication/deltaCommunication.py```
