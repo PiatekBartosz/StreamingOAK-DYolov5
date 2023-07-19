@@ -138,27 +138,27 @@ labels = config["mappings"]["labels"]
 monoLeft.out.link(stereo.left)
 monoRight.out.link(stereo.right)
 
-camRgb.preview.link(yoloSpatial.input)
-yoloSpatial.passthrough.link(xoutRgb.input)  # TODO should be sync with detection ?
-
-yoloSpatial.out.link(xoutNN.input)
-
 stereo.depth.link(yoloSpatial.inputDepth)
+
+camRgb.preview.link(yoloSpatial.input)
+
+yoloSpatial.passthrough.link(xoutRgb.input)  # TODO should be sync with detection ?
 yoloSpatial.passthroughDepth.link(xoutDepth.input)
 yoloSpatial.outNetwork.link(nnNetworkOut.input)
+yoloSpatial.out.link(xoutNN.input)
 
 """
     Start servers
 """
 
-# # start TCP data server (JSON)
-# try:
-#     server_TCP = socketserver.TCPServer(("127.0.0.1", JSON_PORT), TCPServerRequest)
-#     th = threading.Thread(target=server_TCP.serve_forever)
-#     th.daemon = True
-#     th.start()
-# except Exception as e:
-#     print(e)
+# start TCP data server (JSON)
+try:
+    server_TCP = socketserver.TCPServer(("127.0.0.1", JSON_PORT), TCPServerRequest)
+    th = threading.Thread(target=server_TCP.serve_forever)
+    th.daemon = True
+    th.start()
+except Exception as e:
+    print(e)
 
 # start MJPEG HTTP Servers
 try:
@@ -189,10 +189,11 @@ except Exception as e:
 
 # connect to device and start pipeline
 with dai.Device(pipeline) as device:
-    print(f"DepthAI running. Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
+    print("DepthAI running.")
+    print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
-    print(f"Navigate to '{str(delta_host)}:{str(JSON_PORT)}' for detection data in json format.")
+    print(f"Navigate to '{str(IPAddress)}:{str(JSON_PORT)}' for detection data in json format.")
 
     # load transformation matrix
     with open("perspectiveCalibration/calibration_result", "rb") as ifile:
@@ -237,6 +238,10 @@ with dai.Device(pipeline) as device:
         # If the detections is available, draw bounding boxes on it and show the frame
         height = frame.shape[0]
         width = frame.shape[1]
+
+        # prepare dictionary for json format send
+        send = {el: [] for el in labels}
+
         for detection in detections:
             roiData = detection.boundingBoxMapping
             roi = roiData.roi
@@ -260,6 +265,15 @@ with dai.Device(pipeline) as device:
             except:
                 label = detection.label
 
+            # bbox middle coordinates
+            bbox_x, bbox_y = int((x1 + x2) // 2), int((y1 + y2) // 2)
+            if transformation_matrix.any():
+                # if perspective calibration was done calculate detection (x,y) on warped img
+                t_bbox_x, t_bbox_y, scale = np.matmul(transformation_matrix, np.float32([bbox_x, bbox_y, 1]))
+                t_bbox_x, t_bbox_y = int(t_bbox_x / scale), int(t_bbox_y / scale)
+            else:
+                t_bbox_x, t_bbox_y = None, None
+
             cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
             cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
                         cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
@@ -272,21 +286,41 @@ with dai.Device(pipeline) as device:
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
-        # transform frame with perspective calibration
+            # append "send" json file
+            det = {"x_max": detection.xmax, "x_min": detection.xmin, "y_max": detection.ymax, "y_min": detection.ymin,
+                   "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y), "conf": detection.confidence,
+                   "spatial_xyz": (detection.spatialCoordinates.x, detection.spatialCoordinates.y,
+                                   detection.spatialCoordinates.z)}
+            send[label].append(det)
+
+        # send birdview camera if perspective calibration was done
         if transformation_matrix.any():
+
+            # transform frame
             transformed_frame = cv2.warpPerspective(frame_copy, transformation_matrix, (width, height))
-        else:
-            transformed_frame = frame_copy
+
+            # draw circle for every bar recognized in new perspective
+            for choclate_bar_name in send:
+                for detected_bar in send[choclate_bar_name]:
+                    coordinates = detected_bar["middle_transformed"]
+                    cv2.circle(transformed_frame, coordinates, 5, (255, 255, 255), -1)
+            server_HTTP2.frametosend = transformed_frame
+
+        # encode json file and send it using TCP
+        json_send = json.dumps(send)
+        server_TCP.datatosend = json_send
 
         # send frames using http servers
         server_HTTP.frametosend = frame
-        server_HTTP2.frametosend = transformed_frame
         server_HTTP3.frametosend = depthFrameColor
 
         if preview:
             cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
-            cv2.imshow("depth", depthFrameColor)
+            cv2.putText(transformed_frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
+
             cv2.imshow("rgb", frame)
+            cv2.imshow("Transformed frame", transformed_frame)
+            cv2.imshow("depth", depthFrameColor)
 
         if cv2.waitKey(1) == ord('q'):
             break

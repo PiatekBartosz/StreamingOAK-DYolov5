@@ -8,10 +8,14 @@ This repository is used is used for autonomous sorting of choclate bars by delta
 # Run
 ```python3 app.py```
 
-# See result
+# See result (Host must run Linux)
 Video: [your_ip:8090](http://localhost:8090)
 
-Prediction: [localhost:8070](http://localhost:8070)
+Warped video [your_ip:8080](http://localhost:8080)
+
+Depth video  [your_ip:8070](http://localhost:8070)
+
+Prediction: [localhost:8060](http://localhost:8060)
 
 
 # Run automatic sort (need app.py running first)
