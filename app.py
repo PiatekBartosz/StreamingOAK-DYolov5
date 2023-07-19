@@ -13,197 +13,228 @@ import pickle
 import select
 import socket
 import argparse
+from helpers.server_classes import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer
 
-# get user local IP to host over LAN the video, note the json file will be hosted over localhost
-hostname = socket.gethostname()
-IPAddress = socket.gethostbyname(hostname)
+"""
+   Parsing arguments 
+"""
 
-# parsing
 parser = argparse.ArgumentParser()
-parser.add_argument("--device", help="Choose host: \n"
-                                     "0 - delta simulation\n"
-                                     "1 - real delta",
+parser.add_argument("-d", "--device", help="Choose host: \n0 - delta simulation\n1 - real delta",
                     type=int, choices=[0, 1], default=0)
-parser.add_argument("--ip", help="Set http and json servers ip-s. The default ip would be localhost",
+parser.add_argument("-i", "--ip", help="Set http and json servers ip-s. The default ip would be localhost",
                     type=str, default='localhost')
+parser.add_argument("-p", "--preview", help="Choose preview: \n0 - preview off\n1 - preview on",
+                    type=int, choices=[0, 1], default=1)
+parser.add_argument("-D", "--depth", help="Choose depth: \n0 - depth off\n1 - depth on",
+                    type=int, choices=[0, 1], default=1)
 
 args = parser.parse_args()
-
-# PORTS
-HTTP_SERVER_PORT = 8090
-HTTP_SERVER_PORT2 = 8080
-JSON_PORT = 8070
 
 if args.device == 0:
     delta_host, delta_port = "127.0.0.1", 2137
 else:
     delta_host, delta_port = "192.168.0.155", 10
 
+IPAddress = args.ip
 
-class TCPServerRequest(socketserver.BaseRequestHandler):
-    def handle(self):
-        # first send HTTP header
-        header = 'HTTP/1.0 200 OK\r\nServer: Mozarella/2.2\r\nAccept-Range: bytes\r\nConnection: close\r\nMax-Age: 0\r\nExpires: 0\r\nCache-Control: no-cache, private\r\nPragma: no-cache\r\nContent-Type: application/json\r\n\r\n'
-        self.request.send(header.encode())
-        while True:
-            time.sleep(0.1)
-            if hasattr(self.server, 'datatosend'):
-                self.request.send(self.server.datatosend.encode() + '\r\n'.encode())
+if args.preview:
+    previewBool = True
+else:
+    previewBool = False
 
+if args.depth:
+    depthBool = True
+else:
+    depthBool = False
 
-class VideoStreamHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=--jpgboundary')
-        self.end_headers()
-        while True:
-            time.sleep(0.1)
-            if hasattr(self.server, 'frametosend'):
-                image = Image.fromarray(cv2.cvtColor(self.server.frametosend, cv2.COLOR_BGR2RGB))
-                stream_file = BytesIO()
-                image.save(stream_file, 'JPEG')
-                self.wfile.write("--jpgboundary".encode())
+# PORTS
+HTTP_SERVER_PORT = 8090
+HTTP_SERVER_PORT2 = 8080
+if depthBool:
+    HTTP_SERVER_PORT3 = 8070
+JSON_PORT = 8060
 
-                self.send_header('Content-type', 'image/jpeg')
-                self.send_header('Content-length', str(stream_file.getbuffer().nbytes))
-                self.end_headers()
-                image.save(self.wfile, 'JPEG')
+"""
+    Define pipeline & nodes
+"""
 
-
-class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
-    # Handle request in a separate thread
-    pass
-
-
-# enables to stream into two different ports
-def serve_forever(server1, server2):
-    while True:
-        r, w, e = select.select([server1, server2], [], [], 0)
-        if server1 in r:
-            server1.handle_request()
-        if server2 in r:
-            server2.handle_request()
-
-
-def decode_name(label_num):
-    decode_labels = {0: "3-bit", 1: "Mars", 2: "Milkyway", 3: "Snickers", 4: "50white",
-                     5: "black80circ", 6: "black80rect", 7: "white80circ", 8: "white80rect"}
-    return decode_labels[label_num]
-
-
-# open perspective calibration matrix
-with open("perspectiveCalibration/calibration_result", "rb") as infile:
-    transform_matrix = pickle.load(infile)
-
-# parse config
-configPath = Path("json/best.json")
-if not configPath.exists():
-    raise ValueError("Path {} does not exist!".format(configPath))
-
-with configPath.open() as f:
-    config = json.load(f)
-nnConfig = config.get("nn_config", {})
-
-# parse input shape
-if "input_size" in nnConfig:
-    W, H = tuple(map(int, nnConfig.get("input_size").split('x')))
-
-# extract metadata
-metadata = nnConfig.get("NN_specific_metadata", {})
-classes = metadata.get("classes", {})
-coordinates = metadata.get("coordinates", {})
-anchors = metadata.get("anchors", {})
-anchorMasks = metadata.get("anchor_masks", {})
-iouThreshold = metadata.get("iou_threshold", {})
-confidenceThreshold = metadata.get("confidence_threshold", {})
-
-print(metadata)
-
-# parse labels
-nnMappings = config.get("mappings", {})
-labels = nnMappings.get("labels", {})
-
-# get model path
-nnPath = Path("best_openvino_2021.4_6shave.blob")
-if not Path(nnPath).exists():
-    print("No blob found at {}.".format(nnPath))
-
-# Create pipeline
 pipeline = dai.Pipeline()
 
-# Define sources and outputs
-camRgb = pipeline.create(dai.node.ColorCamera)
-detectionNetwork = pipeline.create(dai.node.YoloDetectionNetwork)
-xoutRgb = pipeline.create(dai.node.XLinkOut)
-nnOut = pipeline.create(dai.node.XLinkOut)
+if depthBool:
+    camRgb = pipeline.create(dai.node.ColorCamera)
+    detectionNetwork = pipeline.create(dai.node.YoloSpatialDetectionNetwork)
+    monoLeft = pipeline.create(dai.node.MonoCamera)
+    monoRight = pipeline.create(dai.node.MonoCamera)
+    stereo = pipeline.create(dai.node.StereoDepth)
+else:
+    camRgb = pipeline.create(dai.node.ColorCamera)
+    detectionNetwork = pipeline.create(dai.node.YoloDetectionNetwork)
 
-xoutRgb.setStreamName("rgb")
-nnOut.setStreamName("nn")
+# outputs nodes
+if depthBool:
+    nnNetworkOut = pipeline.create(dai.node.XLinkOut)
+    xoutNN = pipeline.create(dai.node.XLinkOut)
+    xoutRgb = pipeline.create(dai.node.XLinkOut)
+    xoutDepth = pipeline.create(dai.node.XLinkOut)
 
-# Properties
-camRgb.setPreviewSize(W, H)
+    xoutRgb.setStreamName("rgb")
+    xoutNN.setStreamName("detections")
+    nnNetworkOut.setStreamName("nnNetwork")
+    xoutDepth.setStreamName("depth")
+else:
+    xoutNN = pipeline.create(dai.node.XLinkOut)
+    xoutRgb = pipeline.create(dai.node.XLinkOut)
+
+    xoutRgb.setStreamName("rgb")
+    xoutNN.setStreamName("detections")
+
+"""
+    Define pipeline nodes properties
+"""
+
+# nodes properties
+camRgb.setPreviewSize(416, 416)
 camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
 camRgb.setInterleaved(False)
 camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
 camRgb.setFps(40)
 
-# Network specific settings
-detectionNetwork.setConfidenceThreshold(confidenceThreshold)
-detectionNetwork.setNumClasses(classes)
-detectionNetwork.setCoordinateSize(coordinates)
-detectionNetwork.setAnchors(anchors)
-detectionNetwork.setAnchorMasks(anchorMasks)
-detectionNetwork.setIouThreshold(iouThreshold)
-detectionNetwork.setBlobPath(nnPath)
-detectionNetwork.setNumInferenceThreads(2)
-detectionNetwork.input.setBlocking(False)
+if depthBool:
+    monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+    monoLeft.setCamera("left")
+    monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+    monoRight.setCamera("right")
 
-# Linking
-camRgb.preview.link(detectionNetwork.input)
-detectionNetwork.passthrough.link(xoutRgb.input)
-detectionNetwork.out.link(nnOut.input)
+    # setting node configs
+    stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
+
+    # Align depth map to the perspective of RGB camera, on which inference is done
+    stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
+    stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
+    stereo.setSubpixel(True)
+
+"""
+    Configure Yolo NN model
+"""
+
+# blob model path
+detectionNetwork.setBlobPath(Path("config/yoloModel.blob"))
+
+# open NN config
+configPath = Path("config/yoloConfig.json")
+
+if not configPath.exists():
+    raise ValueError(f"Path {configPath} does not exist!")
+
+print("Loading Yolo config...")
+with open(configPath) as file:
+    config = json.load(file)
+nnConfig = config["nn_config"]
+if nnConfig:
+    print("Successfully loaded config")
+
+if depthBool:
+    # spatial Yolo detection parameters
+    detectionNetwork.input.setBlocking(False)
+    detectionNetwork.setBoundingBoxScaleFactor(0.5)
+    detectionNetwork.setDepthLowerThreshold(100) # Min 10 centimeters
+    detectionNetwork.setDepthUpperThreshold(5000) # Max 5 meters
+
+# configure Yolo
+detectionNetwork.setNumClasses(nnConfig["NN_specific_metadata"]["classes"])
+detectionNetwork.setCoordinateSize(nnConfig["NN_specific_metadata"]["coordinates"])
+detectionNetwork.setAnchors(nnConfig["NN_specific_metadata"]["anchors"])
+detectionNetwork.setAnchorMasks(nnConfig["NN_specific_metadata"]["anchor_masks"])
+detectionNetwork.setIouThreshold(nnConfig["NN_specific_metadata"]["iou_threshold"])
+detectionNetwork.setConfidenceThreshold(nnConfig["NN_specific_metadata"]["confidence_threshold"])
+
+# get labels
+labels = config["mappings"]["labels"]
+
+"""
+    Link pipeline nodes
+"""
+if depthBool:
+    monoLeft.out.link(stereo.left)
+    monoRight.out.link(stereo.right)
+
+    stereo.depth.link(detectionNetwork.inputDepth)
+
+    camRgb.preview.link(detectionNetwork.input)
+
+    detectionNetwork.passthrough.link(xoutRgb.input)  # TODO should be sync with detection ?
+    detectionNetwork.passthroughDepth.link(xoutDepth.input)
+    detectionNetwork.outNetwork.link(nnNetworkOut.input)
+    detectionNetwork.out.link(xoutNN.input)
+
+else:
+    camRgb.preview.link(detectionNetwork.input)
+    detectionNetwork.passthrough.link(xoutRgb.input)
+    detectionNetwork.out.link(xoutNN.input)
+
+"""
+    Start servers
+"""
 
 # start TCP data server (JSON)
 try:
     server_TCP = socketserver.TCPServer(("127.0.0.1", JSON_PORT), TCPServerRequest)
+    th = threading.Thread(target=server_TCP.serve_forever)
+    th.daemon = True
+    th.start()
 except Exception as e:
     print(e)
-
-th = threading.Thread(target=server_TCP.serve_forever)
-th.daemon = True
-th.start()
 
 # start MJPEG HTTP Servers
 try:
     server_HTTP = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT), VideoStreamHandler)
+    th2 = threading.Thread(target=server_HTTP.serve_forever)
+    th2.daemon = True
+    th2.start()
 except Exception as e:
     print(e)
-
-th2 = threading.Thread(target=server_HTTP.serve_forever)
-th2.daemon = True
-th2.start()
 
 try:
     server_HTTP2 = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT2), VideoStreamHandler)
+    th3 = threading.Thread(target=server_HTTP2.serve_forever)
+    th3.daemon = True
+    th3.start()
 except Exception as e:
     print(e)
 
-th3 = threading.Thread(target=server_HTTP2.serve_forever)
-th3.daemon = True
-th3.start()
+if depthBool:
+    try:
+        server_HTTP3 = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT3), VideoStreamHandler)
+        th4 = threading.Thread(target=server_HTTP3.serve_forever)
+        th4.daemon = True
+        th4.start()
+    except Exception as e:
+        print(e)
 
-# Connect to device and start pipeline
+
+# connect to device and start pipeline
 with dai.Device(pipeline) as device:
-    print(f"DepthAI running. Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
+    print("DepthAI running.")
+    print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
-    print(f"Navigate to '{str(delta_host)}:{str(JSON_PORT)}' for detection data in json format.")
+    if depthBool:
+        print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
+    print(f"Navigate to '{str(IPAddress)}:{str(JSON_PORT)}' for detection data in json format.")
 
-    # Output queues will be used to get the rgb frames and nn data from the outputs defined above
-    qRgb = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
-    qDet = device.getOutputQueue(name="nn", maxSize=4, blocking=False)
+    # load transformation matrix
+    with open("perspectiveCalibration/calibration_result", "rb") as ifile:
+        transformation_matrix = pickle.load(ifile)
 
-    frame = None
-    detections = []
+    if depthBool:
+        # output queues will be used to get the rgb frames and nn data from the outputs defined above
+        previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
+        detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
+        depthQueue = device.getOutputQueue(name="depth", maxSize=4, blocking=False)
+        networkQueue = device.getOutputQueue(name="nnNetwork", maxSize=4, blocking=False)
+    else:
+        previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
+        detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
 
     startTime = time.monotonic()
     counter = 0
@@ -211,11 +242,21 @@ with dai.Device(pipeline) as device:
     color = (255, 255, 255)
 
     while True:
-        inPreview = qRgb.get()
-        frame = inPreview.getCvFrame()
+        inPreview = previewQueue.get()
+        inDet = detectionNNQueue.get()
+        if depthBool:
+            depthBool = depthQueue.get()
+            inNN = networkQueue.get()
 
-        inNN = qDet.get()
-        detections = inNN.detections
+        frame = inPreview.getCvFrame()
+        frame_copy = frame
+        if depthBool:
+            depthFrame = depthBool.getFrame()  # depthFrame values are in millimeters
+            depth_downscaled = depthFrame[::4]
+            min_depth = np.percentile(depth_downscaled[depth_downscaled != 0], 1)
+            max_depth = np.percentile(depth_downscaled, 99)
+            depthFrameColor = np.interp(depthFrame, (min_depth, max_depth), (0, 255)).astype(np.uint8)
+            depthFrameColor = cv2.applyColorMap(depthFrameColor, cv2.COLORMAP_HOT)
 
         counter += 1
         current_time = time.monotonic()
@@ -224,14 +265,28 @@ with dai.Device(pipeline) as device:
             counter = 0
             startTime = current_time
 
-        # if the frame is available, draw bbox-es on it and show
+        detections = inDet.detections
+
+        # If the detections is available, draw bounding boxes on it and show the frame
         height = frame.shape[0]
         width = frame.shape[1]
 
-        send = {"3-bit": [], "Mars": [], "Milkyway": [], "Snickers": [], "50white": [],
-                "black80circ": [], "black80rect": [], "white80circ": [], "white80rect": []}
+        # prepare dictionary for json format send
+        send = {el: [] for el in labels}
 
         for detection in detections:
+
+            # TODO delete?
+            # if depthBool:
+            #     roiData = detection.boundingBoxMapping
+            #     roi = roiData.roi
+            #     roi = roi.denormalize(depthFrameColor.shape[1], depthFrameColor.shape[0])
+            #     topLeft = roi.topLeft()
+            #     bottomRight = roi.bottomRight()
+            #     xmin = int(topLeft.x)
+            #     ymin = int(topLeft.y)
+            #     xmax = int(bottomRight.x)
+            #     ymax = int(bottomRight.y)
 
             # Denormalize bounding box
             x1 = int(detection.xmin * width)
@@ -239,49 +294,81 @@ with dai.Device(pipeline) as device:
             y1 = int(detection.ymin * height)
             y2 = int(detection.ymax * height)
 
+            try:
+                label = labels[detection.label]
+            except:
+                label = detection.label
+
             # bbox middle coordinates
             bbox_x, bbox_y = int((x1 + x2) // 2), int((y1 + y2) // 2)
-            if transform_matrix.any():
+            if transformation_matrix.any():
                 # if perspective calibration was done calculate detection (x,y) on warped img
-                t_bbox_x, t_bbox_y, scale = np.matmul(transform_matrix, np.float32([bbox_x, bbox_y, 1]))
+                t_bbox_x, t_bbox_y, scale = np.matmul(transformation_matrix, np.float32([bbox_x, bbox_y, 1]))
                 t_bbox_x, t_bbox_y = int(t_bbox_x / scale), int(t_bbox_y / scale)
             else:
-                t_bbox_x, t_bbox_y = 0, 0
+                t_bbox_x, t_bbox_y = None, None
 
-            label = decode_name(detection.label)
-            cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-            cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+            if depthBool:
+                cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, f"X: {int(detection.spatialCoordinates.x)} mm", (x1 + 10, y1 + 50),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, f"Y: {int(detection.spatialCoordinates.y)} mm", (x1 + 10, y1 + 65),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, f"Z: {int(detection.spatialCoordinates.z)} mm", (x1 + 10, y1 + 80),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+
+            else:
+                cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
-            # prepare json file to send with TCP
-            dim = {"xmax": detection.xmax, "xmin": detection.xmin, "ymax": detection.ymax, "ymin": detection.ymin,
-                   "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y)}
-            send[label].append(dim)
+            # append "send" json file
+            if depthBool:
+                spatialXYZ = (detection.spatialCoordinates.x, detection.spatialCoordinates.y,
+                                   detection.spatialCoordinates.z)
+            else:
+                spatialXYZ = (None, None, None)
 
-        # send json format detection with information about message size
-        json_send = json.dumps(send)
-        server_TCP.datatosend = json_send
-
-        # send normal view camera
-        cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
-        frame_cpy = frame
-        cv2.imshow("frame", frame)
-        server_HTTP.frametosend = frame
+            det = {"x_max": detection.xmax, "x_min": detection.xmin, "y_max": detection.ymax, "y_min": detection.ymin,
+                   "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y), "conf": detection.confidence,
+                   "spatial_xyz": spatialXYZ}
+            send[label].append(det)
 
         # send birdview camera if perspective calibration was done
-        if transform_matrix.any():
+        if transformation_matrix.any():
+
             # transform frame
-            transformed_frame = cv2.warpPerspective(frame_cpy, transform_matrix, (W, H))
+            transformed_frame = cv2.warpPerspective(frame_copy, transformation_matrix, (width, height))
 
             # draw circle for every bar recognized in new perspective
             for choclate_bar_name in send:
                 for detected_bar in send[choclate_bar_name]:
                     coordinates = detected_bar["middle_transformed"]
                     cv2.circle(transformed_frame, coordinates, 5, (255, 255, 255), -1)
-
-            cv2.imshow("Transformed frame", transformed_frame)
             server_HTTP2.frametosend = transformed_frame
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        # encode json file and send it using TCP
+        json_send = json.dumps(send)
+        server_TCP.datatosend = json_send
+
+        # send frames using http servers
+        server_HTTP.frametosend = frame
+        if depthBool:
+            server_HTTP3.frametosend = depthFrameColor
+
+        if previewBool:
+            cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
+            cv2.putText(transformed_frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
+
+            cv2.imshow("rgb", frame)
+            cv2.imshow("Transformed frame", transformed_frame)
+
+            if depthBool:
+                cv2.imshow("depth", depthFrameColor)
+
+        if cv2.waitKey(1) == ord('q'):
             break
