@@ -26,14 +26,10 @@ parser.add_argument("-i", "--ip", help="Set http and json servers ip-s. The defa
                     type=str, default='localhost')
 parser.add_argument("-p", "--preview", help="Choose preview: \n0 - preview off\n1 - preview on",
                     type=int, choices=[0, 1], default=1)
+parser.add_argument("-D", "--depth", help="Choose depth: \n0 - depth off\n1 - depth on",
+                    type=int, choices=[0, 1], default=1)
 
 args = parser.parse_args()
-
-# PORTS
-HTTP_SERVER_PORT = 8090
-HTTP_SERVER_PORT2 = 8080
-HTTP_SERVER_PORT3 = 8070
-JSON_PORT = 8060
 
 if args.device == 0:
     delta_host, delta_port = "127.0.0.1", 2137
@@ -43,9 +39,21 @@ else:
 IPAddress = args.ip
 
 if args.preview:
-    preview = True
+    previewBool = True
 else:
-    preview = False
+    previewBool = False
+
+if args.depth:
+    depthBool = True
+else:
+    depthBool = False
+
+# PORTS
+HTTP_SERVER_PORT = 8090
+HTTP_SERVER_PORT2 = 8080
+if depthBool:
+    HTTP_SERVER_PORT3 = 8070
+JSON_PORT = 8060
 
 """
     Define pipeline & nodes
@@ -53,22 +61,33 @@ else:
 
 pipeline = dai.Pipeline()
 
-yoloSpatial = pipeline.create(dai.node.YoloSpatialDetectionNetwork)
-camRgb = pipeline.create(dai.node.ColorCamera)
-monoLeft = pipeline.create(dai.node.MonoCamera)
-monoRight = pipeline.create(dai.node.MonoCamera)
-stereo = pipeline.create(dai.node.StereoDepth)
+if depthBool:
+    camRgb = pipeline.create(dai.node.ColorCamera)
+    detectionNetwork = pipeline.create(dai.node.YoloSpatialDetectionNetwork)
+    monoLeft = pipeline.create(dai.node.MonoCamera)
+    monoRight = pipeline.create(dai.node.MonoCamera)
+    stereo = pipeline.create(dai.node.StereoDepth)
+else:
+    camRgb = pipeline.create(dai.node.ColorCamera)
+    detectionNetwork = pipeline.create(dai.node.YoloDetectionNetwork)
 
 # outputs nodes
-nnNetworkOut = pipeline.create(dai.node.XLinkOut)
-xoutRgb = pipeline.create(dai.node.XLinkOut)
-xoutNN = pipeline.create(dai.node.XLinkOut)
-xoutDepth = pipeline.create(dai.node.XLinkOut)
+if depthBool:
+    nnNetworkOut = pipeline.create(dai.node.XLinkOut)
+    xoutNN = pipeline.create(dai.node.XLinkOut)
+    xoutRgb = pipeline.create(dai.node.XLinkOut)
+    xoutDepth = pipeline.create(dai.node.XLinkOut)
 
-xoutRgb.setStreamName("rgb")
-xoutNN.setStreamName("detections")
-xoutDepth.setStreamName("depth")
-nnNetworkOut.setStreamName("nnNetwork")
+    xoutRgb.setStreamName("rgb")
+    xoutNN.setStreamName("detections")
+    nnNetworkOut.setStreamName("nnNetwork")
+    xoutDepth.setStreamName("depth")
+else:
+    xoutNN = pipeline.create(dai.node.XLinkOut)
+    xoutRgb = pipeline.create(dai.node.XLinkOut)
+
+    xoutRgb.setStreamName("rgb")
+    xoutNN.setStreamName("detections")
 
 """
     Define pipeline nodes properties
@@ -81,25 +100,26 @@ camRgb.setInterleaved(False)
 camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
 camRgb.setFps(40)
 
-monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
-monoLeft.setCamera("left")
-monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
-monoRight.setCamera("right")
+if depthBool:
+    monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+    monoLeft.setCamera("left")
+    monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+    monoRight.setCamera("right")
 
-# setting node configs
-stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
+    # setting node configs
+    stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
 
-# Align depth map to the perspective of RGB camera, on which inference is done
-stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
-stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
-stereo.setSubpixel(True)
+    # Align depth map to the perspective of RGB camera, on which inference is done
+    stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
+    stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
+    stereo.setSubpixel(True)
 
 """
     Configure Yolo NN model
 """
 
 # blob model path
-yoloSpatial.setBlobPath(Path("config/yoloModel.blob"))
+detectionNetwork.setBlobPath(Path("config/yoloModel.blob"))
 
 # open NN config
 configPath = Path("config/yoloConfig.json")
@@ -114,19 +134,20 @@ nnConfig = config["nn_config"]
 if nnConfig:
     print("Successfully loaded config")
 
-# spatial Yolo detection parameters
-yoloSpatial.input.setBlocking(False)
-yoloSpatial.setBoundingBoxScaleFactor(0.5)
-yoloSpatial.setDepthLowerThreshold(100) # Min 10 centimeters
-yoloSpatial.setDepthUpperThreshold(5000) # Max 5 meters
+if depthBool:
+    # spatial Yolo detection parameters
+    detectionNetwork.input.setBlocking(False)
+    detectionNetwork.setBoundingBoxScaleFactor(0.5)
+    detectionNetwork.setDepthLowerThreshold(100) # Min 10 centimeters
+    detectionNetwork.setDepthUpperThreshold(5000) # Max 5 meters
 
 # configure Yolo
-yoloSpatial.setNumClasses(nnConfig["NN_specific_metadata"]["classes"])
-yoloSpatial.setCoordinateSize(nnConfig["NN_specific_metadata"]["coordinates"])
-yoloSpatial.setAnchors(nnConfig["NN_specific_metadata"]["anchors"])
-yoloSpatial.setAnchorMasks(nnConfig["NN_specific_metadata"]["anchor_masks"])
-yoloSpatial.setIouThreshold(nnConfig["NN_specific_metadata"]["iou_threshold"])
-yoloSpatial.setConfidenceThreshold(nnConfig["NN_specific_metadata"]["confidence_threshold"])
+detectionNetwork.setNumClasses(nnConfig["NN_specific_metadata"]["classes"])
+detectionNetwork.setCoordinateSize(nnConfig["NN_specific_metadata"]["coordinates"])
+detectionNetwork.setAnchors(nnConfig["NN_specific_metadata"]["anchors"])
+detectionNetwork.setAnchorMasks(nnConfig["NN_specific_metadata"]["anchor_masks"])
+detectionNetwork.setIouThreshold(nnConfig["NN_specific_metadata"]["iou_threshold"])
+detectionNetwork.setConfidenceThreshold(nnConfig["NN_specific_metadata"]["confidence_threshold"])
 
 # get labels
 labels = config["mappings"]["labels"]
@@ -134,18 +155,23 @@ labels = config["mappings"]["labels"]
 """
     Link pipeline nodes
 """
+if depthBool:
+    monoLeft.out.link(stereo.left)
+    monoRight.out.link(stereo.right)
 
-monoLeft.out.link(stereo.left)
-monoRight.out.link(stereo.right)
+    stereo.depth.link(detectionNetwork.inputDepth)
 
-stereo.depth.link(yoloSpatial.inputDepth)
+    camRgb.preview.link(detectionNetwork.input)
 
-camRgb.preview.link(yoloSpatial.input)
+    detectionNetwork.passthrough.link(xoutRgb.input)  # TODO should be sync with detection ?
+    detectionNetwork.passthroughDepth.link(xoutDepth.input)
+    detectionNetwork.outNetwork.link(nnNetworkOut.input)
+    detectionNetwork.out.link(xoutNN.input)
 
-yoloSpatial.passthrough.link(xoutRgb.input)  # TODO should be sync with detection ?
-yoloSpatial.passthroughDepth.link(xoutDepth.input)
-yoloSpatial.outNetwork.link(nnNetworkOut.input)
-yoloSpatial.out.link(xoutNN.input)
+else:
+    camRgb.preview.link(detectionNetwork.input)
+    detectionNetwork.passthrough.link(xoutRgb.input)
+    detectionNetwork.out.link(xoutNN.input)
 
 """
     Start servers
@@ -177,14 +203,14 @@ try:
 except Exception as e:
     print(e)
 
-try:
-    server_HTTP3 = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT3), VideoStreamHandler)
-    th4 = threading.Thread(target=server_HTTP3.serve_forever)
-    th4.daemon = True
-    th4.start()
-except Exception as e:
-    print(e)
-
+if depthBool:
+    try:
+        server_HTTP3 = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT3), VideoStreamHandler)
+        th4 = threading.Thread(target=server_HTTP3.serve_forever)
+        th4.daemon = True
+        th4.start()
+    except Exception as e:
+        print(e)
 
 
 # connect to device and start pipeline
@@ -192,18 +218,23 @@ with dai.Device(pipeline) as device:
     print("DepthAI running.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
-    print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
+    if depthBool:
+        print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
     print(f"Navigate to '{str(IPAddress)}:{str(JSON_PORT)}' for detection data in json format.")
 
     # load transformation matrix
     with open("perspectiveCalibration/calibration_result", "rb") as ifile:
         transformation_matrix = pickle.load(ifile)
 
-    # output queues will be used to get the rgb frames and nn data from the outputs defined above
-    previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
-    detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
-    depthQueue = device.getOutputQueue(name="depth", maxSize=4, blocking=False)
-    networkQueue = device.getOutputQueue(name="nnNetwork", maxSize=4, blocking=False)
+    if depthBool:
+        # output queues will be used to get the rgb frames and nn data from the outputs defined above
+        previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
+        detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
+        depthQueue = device.getOutputQueue(name="depth", maxSize=4, blocking=False)
+        networkQueue = device.getOutputQueue(name="nnNetwork", maxSize=4, blocking=False)
+    else:
+        previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
+        detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
 
     startTime = time.monotonic()
     counter = 0
@@ -213,18 +244,19 @@ with dai.Device(pipeline) as device:
     while True:
         inPreview = previewQueue.get()
         inDet = detectionNNQueue.get()
-        depth = depthQueue.get()
-        inNN = networkQueue.get()
+        if depthBool:
+            depthBool = depthQueue.get()
+            inNN = networkQueue.get()
 
         frame = inPreview.getCvFrame()
         frame_copy = frame
-        depthFrame = depth.getFrame()  # depthFrame values are in millimeters
-
-        depth_downscaled = depthFrame[::4]
-        min_depth = np.percentile(depth_downscaled[depth_downscaled != 0], 1)
-        max_depth = np.percentile(depth_downscaled, 99)
-        depthFrameColor = np.interp(depthFrame, (min_depth, max_depth), (0, 255)).astype(np.uint8)
-        depthFrameColor = cv2.applyColorMap(depthFrameColor, cv2.COLORMAP_HOT)
+        if depthBool:
+            depthFrame = depthBool.getFrame()  # depthFrame values are in millimeters
+            depth_downscaled = depthFrame[::4]
+            min_depth = np.percentile(depth_downscaled[depth_downscaled != 0], 1)
+            max_depth = np.percentile(depth_downscaled, 99)
+            depthFrameColor = np.interp(depthFrame, (min_depth, max_depth), (0, 255)).astype(np.uint8)
+            depthFrameColor = cv2.applyColorMap(depthFrameColor, cv2.COLORMAP_HOT)
 
         counter += 1
         current_time = time.monotonic()
@@ -243,16 +275,18 @@ with dai.Device(pipeline) as device:
         send = {el: [] for el in labels}
 
         for detection in detections:
-            roiData = detection.boundingBoxMapping
-            roi = roiData.roi
-            roi = roi.denormalize(depthFrameColor.shape[1], depthFrameColor.shape[0])
-            topLeft = roi.topLeft()
-            bottomRight = roi.bottomRight()
-            xmin = int(topLeft.x)
-            ymin = int(topLeft.y)
-            xmax = int(bottomRight.x)
-            ymax = int(bottomRight.y)
-            cv2.rectangle(depthFrameColor, (xmin, ymin), (xmax, ymax), color, 1)
+
+            # TODO delete?
+            # if depthBool:
+            #     roiData = detection.boundingBoxMapping
+            #     roi = roiData.roi
+            #     roi = roi.denormalize(depthFrameColor.shape[1], depthFrameColor.shape[0])
+            #     topLeft = roi.topLeft()
+            #     bottomRight = roi.bottomRight()
+            #     xmin = int(topLeft.x)
+            #     ymin = int(topLeft.y)
+            #     xmax = int(bottomRight.x)
+            #     ymax = int(bottomRight.y)
 
             # Denormalize bounding box
             x1 = int(detection.xmin * width)
@@ -274,23 +308,34 @@ with dai.Device(pipeline) as device:
             else:
                 t_bbox_x, t_bbox_y = None, None
 
-            cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-            cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-            cv2.putText(frame, f"X: {int(detection.spatialCoordinates.x)} mm", (x1 + 10, y1 + 50),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-            cv2.putText(frame, f"Y: {int(detection.spatialCoordinates.y)} mm", (x1 + 10, y1 + 65),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
-            cv2.putText(frame, f"Z: {int(detection.spatialCoordinates.z)} mm", (x1 + 10, y1 + 80),
-                        cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+            if depthBool:
+                cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, f"X: {int(detection.spatialCoordinates.x)} mm", (x1 + 10, y1 + 50),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, f"Y: {int(detection.spatialCoordinates.y)} mm", (x1 + 10, y1 + 65),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, f"Z: {int(detection.spatialCoordinates.z)} mm", (x1 + 10, y1 + 80),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+
+            else:
+                cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
+                cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
+                            cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
             # append "send" json file
+            if depthBool:
+                spatialXYZ = (detection.spatialCoordinates.x, detection.spatialCoordinates.y,
+                                   detection.spatialCoordinates.z)
+            else:
+                spatialXYZ = (None, None, None)
+
             det = {"x_max": detection.xmax, "x_min": detection.xmin, "y_max": detection.ymax, "y_min": detection.ymin,
                    "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y), "conf": detection.confidence,
-                   "spatial_xyz": (detection.spatialCoordinates.x, detection.spatialCoordinates.y,
-                                   detection.spatialCoordinates.z)}
+                   "spatial_xyz": spatialXYZ}
             send[label].append(det)
 
         # send birdview camera if perspective calibration was done
@@ -312,15 +357,18 @@ with dai.Device(pipeline) as device:
 
         # send frames using http servers
         server_HTTP.frametosend = frame
-        server_HTTP3.frametosend = depthFrameColor
+        if depthBool:
+            server_HTTP3.frametosend = depthFrameColor
 
-        if preview:
+        if previewBool:
             cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
             cv2.putText(transformed_frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color)
 
             cv2.imshow("rgb", frame)
             cv2.imshow("Transformed frame", transformed_frame)
-            cv2.imshow("depth", depthFrameColor)
+
+            if depthBool:
+                cv2.imshow("depth", depthFrameColor)
 
         if cv2.waitKey(1) == ord('q'):
             break
