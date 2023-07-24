@@ -21,6 +21,7 @@ class DepthAIPipeline:
         self.depth_bool = depth_bool
         self.transformation_matrix = transformation_matrix
         self.pipeline = dai.Pipeline()
+        self.labels = []
 
     def setup(self):
         """
@@ -116,7 +117,7 @@ class DepthAIPipeline:
         detectionNetwork.setConfidenceThreshold(nnConfig["NN_specific_metadata"]["confidence_threshold"])
 
         # get labels
-        labels = config["mappings"]["labels"]
+        self.labels = config["mappings"]["labels"]
 
         """
             Link pipeline nodes
@@ -152,15 +153,35 @@ class DepthAiApp:
         self.server_HTTP = None
         self.server_HTTP2 = None
         self.server_HTTP3 = None
+        self.threads = []
+        self.detections = []
+        self.depth_bool = self.args.depth
+        self.preview_bool = self.args.preview
+        self.IPAddress = args.ip
+
+        # parse args
+        if self.args.device == 0:
+            self.delta_host, self.delta_port = "127.0.0.1", 2137
+        else:
+            delta_host, delta_port = "192.168.0.155", 10
+
+        # PORTS
+        self.HTTP_SERVER_PORT = 8090
+        self.HTTP_SERVER_PORT2 = 8080
+        if self.depth_bool:
+            self.HTTP_SERVER_PORT3 = 8070
+        self.JSON_PORT = 8060
 
     def setup_pipeline(self):
-        self.depth_bool = self.args.depth
-
         # load transformation matrix
         if self.depth_bool:
             # load transformation matrix
             with open("perspectiveCalibration/calibration_result", "rb") as ifile:
                 transformation_matrix = pickle.load(ifile)
+
+            depthai_pipeline = DepthAIPipeline(self.depth_bool, transformation_matrix)
+            depthai_pipeline.setup()
+            self.pipeline = depthai_pipeline
 
     def start_servers(self):
         """
@@ -169,52 +190,52 @@ class DepthAiApp:
 
         # start TCP data server (JSON)
         try:
-            server_TCP = socketserver.TCPServer(("127.0.0.1", JSON_PORT), TCPServerRequest)
-            th = threading.Thread(target=server_TCP.serve_forever)
-            th.daemon = True
-            th.start()
+            server_TCP = socketserver.TCPServer((self.args.ip, self.JSON_PORT), TCPServerRequest)
+            self.server_TCP = threading.Thread(target=server_TCP.serve_forever)
+            self.server_TCP.daemon = True
+            self.server_TCP.start()
         except Exception as e:
             print(e)
 
         # start MJPEG HTTP Servers
         try:
-            server_HTTP = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT), VideoStreamHandler)
-            th2 = threading.Thread(target=server_HTTP.serve_forever)
-            th2.daemon = True
-            th2.start()
+            server_HTTP = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT), VideoStreamHandler)
+            self.server_HTTP = threading.Thread(target=server_HTTP.serve_forever)
+            self.server_HTTP.daemon = True
+            self.server_HTTP.start()
         except Exception as e:
             print(e)
 
         try:
-            server_HTTP2 = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT2), VideoStreamHandler)
-            th3 = threading.Thread(target=server_HTTP2.serve_forever)
-            th3.daemon = True
-            th3.start()
+            server_HTTP2 = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT2), VideoStreamHandler)
+            self.server_HTTP2 = threading.Thread(target=server_HTTP2.serve_forever)
+            self.server_HTTP2.daemon = True
+            self.server_HTTP2.start()
         except Exception as e:
             print(e)
 
         if self.depth_bool:
             try:
-                server_HTTP3 = ThreadedHTTPServer((args.ip, HTTP_SERVER_PORT3), VideoStreamHandler)
-                th4 = threading.Thread(target=server_HTTP3.serve_forever)
-                th4.daemon = True
-                th4.start()
+                server_HTTP3 = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT3), VideoStreamHandler)
+                self.server_HTTP3 = threading.Thread(target=server_HTTP3.serve_forever)
+                self.server_HTTP3.daemon = True
+                self.server_HTTP3.start()
             except Exception as e:
                 print(e)
 
     def run(self):
         self.setup_pipeline()
-        with dai.Device(self.pipeline) as device:
+        with dai.Device(self.pipeline.pipeline) as device:
             print("DepthAI running.")
-            print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT)}' for normal video stream.")
-            print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT2)}' for warped video stream.")
-            if depthBool:
-                print(f"Navigate to '{str(IPAddress)}:{str(HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
-            print(f"Navigate to '{str(IPAddress)}:{str(JSON_PORT)}' for detection data in json format.")
+            print(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT)}' for normal video stream.")
+            print(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT2)}' for warped video stream.")
+            if self.depth_bool:
+                print(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
+            print(f"Navigate to '{str(self.IPAddress)}:{str(self.JSON_PORT)}' for detection data in json format.")
 
 
 
-            if depthBool:
+            if self.depth_bool:
                 # output queues will be used to get the rgb frames and nn data from the outputs defined above
                 previewQueue = device.getOutputQueue(name="rgb", maxSize=4, blocking=False)
                 detectionNNQueue = device.getOutputQueue(name="detections", maxSize=4, blocking=False)
@@ -232,14 +253,14 @@ class DepthAiApp:
             while True:
                 inPreview = previewQueue.get()
                 inDet = detectionNNQueue.get()
-                if depthBool:
-                    depthBool = depthQueue.get()
+                if self.depth_bool:
+                    inDepth = depthQueue.get()
                     inNN = networkQueue.get()
 
                 frame = inPreview.getCvFrame()
                 frame_copy = frame
-                if depthBool:
-                    depthFrame = depthBool.getFrame()  # depthFrame values are in millimeters
+                if self.depth_bool:
+                    depthFrame = inDepth.getFrame()  # depthFrame values are in millimeters
                     depth_downscaled = depthFrame[::4]
                     min_depth = np.percentile(depth_downscaled[depth_downscaled != 0], 1)
                     max_depth = np.percentile(depth_downscaled, 99)
@@ -253,28 +274,16 @@ class DepthAiApp:
                     counter = 0
                     startTime = current_time
 
-                detections = inDet.detections
+                self.detections = inDet.detections
 
                 # If the detections is available, draw bounding boxes on it and show the frame
                 height = frame.shape[0]
                 width = frame.shape[1]
 
                 # prepare dictionary for json format send
-                send = {el: [] for el in labels}
+                send = {el: [] for el in self.pipeline.labels}
 
-                for detection in detections:
-
-                    # TODO delete?
-                    # if depthBool:
-                    #     roiData = detection.boundingBoxMapping
-                    #     roi = roiData.roi
-                    #     roi = roi.denormalize(depthFrameColor.shape[1], depthFrameColor.shape[0])
-                    #     topLeft = roi.topLeft()
-                    #     bottomRight = roi.bottomRight()
-                    #     xmin = int(topLeft.x)
-                    #     ymin = int(topLeft.y)
-                    #     xmax = int(bottomRight.x)
-                    #     ymax = int(bottomRight.y)
+                for detection in self.detections:
 
                     # Denormalize bounding box
                     x1 = int(detection.xmin * width)
@@ -283,20 +292,20 @@ class DepthAiApp:
                     y2 = int(detection.ymax * height)
 
                     try:
-                        label = labels[detection.label]
+                        label = self.pipeline.labels[detection.label]
                     except:
                         label = detection.label
 
                     # bbox middle coordinates
                     bbox_x, bbox_y = int((x1 + x2) // 2), int((y1 + y2) // 2)
-                    if transformation_matrix.any():
+                    if self.pipeline.transformation_matrix.any():
                         # if perspective calibration was done calculate detection (x,y) on warped img
-                        t_bbox_x, t_bbox_y, scale = np.matmul(transformation_matrix, np.float32([bbox_x, bbox_y, 1]))
+                        t_bbox_x, t_bbox_y, scale = np.matmul(self.pipeline.transformation_matrix, np.float32([bbox_x, bbox_y, 1]))
                         t_bbox_x, t_bbox_y = int(t_bbox_x / scale), int(t_bbox_y / scale)
                     else:
                         t_bbox_x, t_bbox_y = None, None
 
-                    if depthBool:
+                    if self.depth_bool:
                         cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
                         cv2.putText(frame, "{:.2f}".format(detection.confidence * 100), (x1 + 10, y1 + 35),
                                     cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
@@ -315,7 +324,7 @@ class DepthAiApp:
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, cv2.FONT_HERSHEY_SIMPLEX)
 
                     # append "send" json file
-                    if depthBool:
+                    if self.depth_bool:
                         spatialXYZ = (detection.spatialCoordinates.x, detection.spatialCoordinates.y,
                                       detection.spatialCoordinates.z)
                     else:
@@ -329,28 +338,28 @@ class DepthAiApp:
                     send[label].append(det)
 
                 # send birdview camera if perspective calibration was done
-                if transformation_matrix.any():
+                if self.pipeline.transformation_matrix.any():
 
                     # transform frame
-                    transformed_frame = cv2.warpPerspective(frame_copy, transformation_matrix, (width, height))
+                    transformed_frame = cv2.warpPerspective(frame_copy, self.pipeline.transformation_matrix, (width, height))
 
                     # draw circle for every bar recognized in new perspective
                     for choclate_bar_name in send:
                         for detected_bar in send[choclate_bar_name]:
                             coordinates = detected_bar["middle_transformed"]
                             cv2.circle(transformed_frame, coordinates, 5, (255, 255, 255), -1)
-                    server_HTTP2.frametosend = transformed_frame
+                    frametosend = transformed_frame
 
                 # encode json file and send it using TCP
                 json_send = json.dumps(send)
-                server_TCP.datatosend = json_send
+                self.server_TCP.datatosend = json_send
 
                 # send frames using http servers
-                server_HTTP.frametosend = frame
-                if depthBool:
-                    server_HTTP3.frametosend = depthFrameColor
+                self.server_HTTP.frametosend = frame
+                if self.depth_bool:
+                    self.server_HTTP3.frametosend = depthFrameColor
 
-                if previewBool:
+                if self.preview_bool:
                     cv2.putText(frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX,
                                 0.4, color)
                     cv2.putText(transformed_frame, "NN fps: {:.2f}".format(fps), (2, frame.shape[0] - 4),
@@ -359,13 +368,14 @@ class DepthAiApp:
                     cv2.imshow("rgb", frame)
                     cv2.imshow("Transformed frame", transformed_frame)
 
-                    if depthBool:
+                    if self.depth_bool:
                         cv2.imshow("depth", depthFrameColor)
 
                 if cv2.waitKey(1) == ord('q'):
                     break
             pass
         pass
+
 
 if __name__ == "__main__":
     """
@@ -384,29 +394,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.device == 0:
-        delta_host, delta_port = "127.0.0.1", 2137
-    else:
-        delta_host, delta_port = "192.168.0.155", 10
+    app = DepthAiApp(args)
+    app.start_servers()
+    app.run()
 
-    IPAddress = args.ip
 
-    if args.preview:
-        previewBool = True
-    else:
-        previewBool = False
-
-    if args.depth:
-        self.depth_bool = True
-    else:
-        self.depth_bool = False
-
-    # PORTS
-    HTTP_SERVER_PORT = 8090
-    HTTP_SERVER_PORT2 = 8080
-    if self.depth_bool:
-        HTTP_SERVER_PORT3 = 8070
-    JSON_PORT = 8060
 
 
 
