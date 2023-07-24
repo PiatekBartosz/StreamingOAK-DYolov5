@@ -13,8 +13,14 @@ import pickle
 import select
 import socket
 import argparse
-from helpers.server_classes import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer
+import re
+from helpers.server import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer
+from helpers.delta import RobotDeltaClient
 
+
+class DeltaRobotClient:
+    def __init__(self):
+        pass
 
 class DepthAiApp:
     def __init__(self, args):
@@ -24,11 +30,13 @@ class DepthAiApp:
         self.server_HTTP = None
         self.server_HTTP2 = None
         self.server_HTTP3 = None
+        self.delta_client = None
         self.threads = []
         self.labels = []
         self.detections = []
-        self.depth_bool = self.args.depth
-        self.preview_bool = self.args.preview
+        self.depth_bool = bool(self.args.depth)
+        self.preview_bool = bool(self.args.preview)
+        self.sort_bool = bool(self.args.sort)
         self.IPAddress = args.ip
         self.transformation_matrix = None
 
@@ -209,6 +217,14 @@ class DepthAiApp:
             except Exception as e:
                 print(e)
 
+        if self.sort_bool:
+            try:
+                delta_client = RobotDeltaClient(self.delta_host, self.delta_port)
+                self.delta_client = threading.Thread(target=delta_client.handle_communication)
+            except Exception as e:
+                print(e)
+
+
     def run(self):
         self.setup_pipeline()
         with dai.Device(self.pipeline) as device:
@@ -376,6 +392,8 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--preview", help="Choose preview: \n0 - preview off\n1 - preview on",
                         type=int, choices=[0, 1], default=1)
     parser.add_argument("-D", "--depth", help="Choose depth: \n0 - depth off\n1 - depth on",
+                        type=int, choices=[0, 1], default=1)
+    parser.add_argument("-s", "--sort", help="Enables automatic sorting: \n0 - sorting off\n1 - sorting on",
                         type=int, choices=[0, 1], default=1)
 
     args = parser.parse_args()
