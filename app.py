@@ -16,154 +16,27 @@ import argparse
 from helpers.server_classes import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer
 
 
-class DepthAIPipeline:
-    def __init__(self, depth_bool, transformation_matrix=None):
-        self.depth_bool = depth_bool
-        self.transformation_matrix = transformation_matrix
-        self.pipeline = dai.Pipeline()
-        self.labels = []
-
-    def setup(self):
-        """
-            Define pipeline & nodes
-        """
-
-        if self.depth_bool:
-            camRgb = self.pipeline.create(dai.node.ColorCamera)
-            detectionNetwork = self.pipeline.create(dai.node.YoloSpatialDetectionNetwork)
-            monoLeft = self.pipeline.create(dai.node.MonoCamera)
-            monoRight = self.pipeline.create(dai.node.MonoCamera)
-            stereo = self.pipeline.create(dai.node.StereoDepth)
-        else:
-            camRgb = self.pipeline.create(dai.node.ColorCamera)
-            detectionNetwork = self.pipeline.create(dai.node.YoloDetectionNetwork)
-
-        # outputs nodes
-        if self.depth_bool:
-            nnNetworkOut = self.pipeline.create(dai.node.XLinkOut)
-            xoutNN = self.pipeline.create(dai.node.XLinkOut)
-            xoutRgb = self.pipeline.create(dai.node.XLinkOut)
-            xoutDepth = self.pipeline.create(dai.node.XLinkOut)
-
-            xoutRgb.setStreamName("rgb")
-            xoutNN.setStreamName("detections")
-            nnNetworkOut.setStreamName("nnNetwork")
-            xoutDepth.setStreamName("depth")
-        else:
-            xoutNN = self.pipeline.create(dai.node.XLinkOut)
-            xoutRgb = self.pipeline.create(dai.node.XLinkOut)
-
-            xoutRgb.setStreamName("rgb")
-            xoutNN.setStreamName("detections")
-
-        """
-            Define pipeline nodes properties
-        """
-
-        # nodes properties
-        camRgb.setPreviewSize(416, 416)
-        camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
-        camRgb.setInterleaved(False)
-        camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
-        camRgb.setFps(40)
-
-        if self.depth_bool:
-            monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
-            monoLeft.setCamera("left")
-            monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
-            monoRight.setCamera("right")
-
-            # setting node configs
-            stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
-
-            # Align depth map to the perspective of RGB camera, on which inference is done
-            stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
-            stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
-            stereo.setSubpixel(True)
-
-        """
-            Configure Yolo NN model
-        """
-
-        # blob model path
-        detectionNetwork.setBlobPath(Path("config/yoloModel.blob"))
-
-        # open NN config
-        configPath = Path("config/yoloConfig.json")
-
-        if not configPath.exists():
-            raise ValueError(f"Path {configPath} does not exist!")
-
-        print("Loading Yolo config...")
-        with open(configPath) as file:
-            config = json.load(file)
-        nnConfig = config["nn_config"]
-        if nnConfig:
-            print("Successfully loaded config")
-
-        if self.depth_bool:
-            # spatial Yolo detection parameters
-            detectionNetwork.input.setBlocking(False)
-            detectionNetwork.setBoundingBoxScaleFactor(0.5)
-            detectionNetwork.setDepthLowerThreshold(100)  # Min 10 centimeters
-            detectionNetwork.setDepthUpperThreshold(5000)  # Max 5 meters
-
-        # configure Yolo
-        detectionNetwork.setNumClasses(nnConfig["NN_specific_metadata"]["classes"])
-        detectionNetwork.setCoordinateSize(nnConfig["NN_specific_metadata"]["coordinates"])
-        detectionNetwork.setAnchors(nnConfig["NN_specific_metadata"]["anchors"])
-        detectionNetwork.setAnchorMasks(nnConfig["NN_specific_metadata"]["anchor_masks"])
-        detectionNetwork.setIouThreshold(nnConfig["NN_specific_metadata"]["iou_threshold"])
-        detectionNetwork.setConfidenceThreshold(nnConfig["NN_specific_metadata"]["confidence_threshold"])
-
-        # get labels
-        self.labels = config["mappings"]["labels"]
-
-        """
-            Link pipeline nodes
-        """
-        if self.depth_bool:
-            monoLeft.out.link(stereo.left)
-            monoRight.out.link(stereo.right)
-
-            stereo.depth.link(detectionNetwork.inputDepth)
-
-            camRgb.preview.link(detectionNetwork.input)
-
-            detectionNetwork.passthrough.link(xoutRgb.input)  # TODO should be sync with detection ?
-            detectionNetwork.passthroughDepth.link(xoutDepth.input)
-            detectionNetwork.outNetwork.link(nnNetworkOut.input)
-            detectionNetwork.out.link(xoutNN.input)
-
-        else:
-            camRgb.preview.link(detectionNetwork.input)
-            detectionNetwork.passthrough.link(xoutRgb.input)
-            detectionNetwork.out.link(xoutNN.input)
-        pass
-
-    def get_pipeline(self):
-        return self.pipeline
-
-
 class DepthAiApp:
     def __init__(self, args):
         self.args = args
-        self.pipeline = None
+        self.pipeline = dai.Pipeline()
         self.server_TCP = None
         self.server_HTTP = None
         self.server_HTTP2 = None
         self.server_HTTP3 = None
         self.threads = []
+        self.labels = []
         self.detections = []
         self.depth_bool = self.args.depth
         self.preview_bool = self.args.preview
         self.IPAddress = args.ip
+        self.transformation_matrix = None
 
         # parse args
         if self.args.device == 0:
             self.delta_host, self.delta_port = "127.0.0.1", 2137
         else:
-            delta_host, delta_port = "192.168.0.155", 10
+            self.delta_host, self.delta_port = "192.168.0.155", 10
 
         # PORTS
         self.HTTP_SERVER_PORT = 8090
@@ -177,11 +50,124 @@ class DepthAiApp:
         if self.depth_bool:
             # load transformation matrix
             with open("perspectiveCalibration/calibration_result", "rb") as ifile:
-                transformation_matrix = pickle.load(ifile)
+                self.transformation_matrix = pickle.load(ifile)
 
-            depthai_pipeline = DepthAIPipeline(self.depth_bool, transformation_matrix)
-            depthai_pipeline.setup()
-            self.pipeline = depthai_pipeline
+            """
+                 Define pipeline & nodes
+            """
+
+            if self.depth_bool:
+                camRgb = self.pipeline.create(dai.node.ColorCamera)
+                detectionNetwork = self.pipeline.create(dai.node.YoloSpatialDetectionNetwork)
+                monoLeft = self.pipeline.create(dai.node.MonoCamera)
+                monoRight = self.pipeline.create(dai.node.MonoCamera)
+                stereo = self.pipeline.create(dai.node.StereoDepth)
+            else:
+                camRgb = self.pipeline.create(dai.node.ColorCamera)
+                detectionNetwork = self.pipeline.create(dai.node.YoloDetectionNetwork)
+
+            # outputs nodes
+            if self.depth_bool:
+                nnNetworkOut = self.pipeline.create(dai.node.XLinkOut)
+                xoutNN = self.pipeline.create(dai.node.XLinkOut)
+                xoutRgb = self.pipeline.create(dai.node.XLinkOut)
+                xoutDepth = self.pipeline.create(dai.node.XLinkOut)
+
+                xoutRgb.setStreamName("rgb")
+                xoutNN.setStreamName("detections")
+                nnNetworkOut.setStreamName("nnNetwork")
+                xoutDepth.setStreamName("depth")
+            else:
+                xoutNN = self.pipeline.create(dai.node.XLinkOut)
+                xoutRgb = self.pipeline.create(dai.node.XLinkOut)
+
+                xoutRgb.setStreamName("rgb")
+                xoutNN.setStreamName("detections")
+
+            """
+                Define pipeline nodes properties
+            """
+
+            # nodes properties
+            camRgb.setPreviewSize(416, 416)
+            camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+            camRgb.setInterleaved(False)
+            camRgb.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
+            camRgb.setFps(40)
+
+            if self.depth_bool:
+                monoLeft.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+                monoLeft.setCamera("left")
+                monoRight.setResolution(dai.MonoCameraProperties.SensorResolution.THE_400_P)
+                monoRight.setCamera("right")
+
+                # setting node configs
+                stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
+
+                # Align depth map to the perspective of RGB camera, on which inference is done
+                stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
+                stereo.setOutputSize(monoLeft.getResolutionWidth(), monoLeft.getResolutionHeight())
+                stereo.setSubpixel(True)
+
+            """
+                Configure Yolo NN model
+            """
+
+            # blob model path
+            detectionNetwork.setBlobPath(Path("config/yoloModel.blob"))
+
+            # open NN config
+            configPath = Path("config/yoloConfig.json")
+
+            if not configPath.exists():
+                raise ValueError(f"Path {configPath} does not exist!")
+
+            print("Loading Yolo config...")
+            with open(configPath) as file:
+                config = json.load(file)
+            nnConfig = config["nn_config"]
+            if nnConfig:
+                print("Successfully loaded config")
+
+            if self.depth_bool:
+                # spatial Yolo detection parameters
+                detectionNetwork.input.setBlocking(False)
+                detectionNetwork.setBoundingBoxScaleFactor(0.5)
+                detectionNetwork.setDepthLowerThreshold(100)  # Min 10 centimeters
+                detectionNetwork.setDepthUpperThreshold(5000)  # Max 5 meters
+
+            # configure Yolo
+            detectionNetwork.setNumClasses(nnConfig["NN_specific_metadata"]["classes"])
+            detectionNetwork.setCoordinateSize(nnConfig["NN_specific_metadata"]["coordinates"])
+            detectionNetwork.setAnchors(nnConfig["NN_specific_metadata"]["anchors"])
+            detectionNetwork.setAnchorMasks(nnConfig["NN_specific_metadata"]["anchor_masks"])
+            detectionNetwork.setIouThreshold(nnConfig["NN_specific_metadata"]["iou_threshold"])
+            detectionNetwork.setConfidenceThreshold(nnConfig["NN_specific_metadata"]["confidence_threshold"])
+
+            # get labels
+            self.labels = config["mappings"]["labels"]
+
+            """
+                Link pipeline nodes
+            """
+            if self.depth_bool:
+                monoLeft.out.link(stereo.left)
+                monoRight.out.link(stereo.right)
+
+                stereo.depth.link(detectionNetwork.inputDepth)
+
+                camRgb.preview.link(detectionNetwork.input)
+
+                detectionNetwork.passthrough.link(xoutRgb.input)  # TODO should be sync with detection ?
+                detectionNetwork.passthroughDepth.link(xoutDepth.input)
+                detectionNetwork.outNetwork.link(nnNetworkOut.input)
+                detectionNetwork.out.link(xoutNN.input)
+
+            else:
+                camRgb.preview.link(detectionNetwork.input)
+                detectionNetwork.passthrough.link(xoutRgb.input)
+                detectionNetwork.out.link(xoutNN.input)
+            pass
 
     def start_servers(self):
         """
@@ -225,7 +211,7 @@ class DepthAiApp:
 
     def run(self):
         self.setup_pipeline()
-        with dai.Device(self.pipeline.pipeline) as device:
+        with dai.Device(self.pipeline) as device:
             print("DepthAI running.")
             print(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT)}' for normal video stream.")
             print(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT2)}' for warped video stream.")
@@ -281,7 +267,7 @@ class DepthAiApp:
                 width = frame.shape[1]
 
                 # prepare dictionary for json format send
-                send = {el: [] for el in self.pipeline.labels}
+                send = {el: [] for el in self.labels}
 
                 for detection in self.detections:
 
@@ -292,15 +278,15 @@ class DepthAiApp:
                     y2 = int(detection.ymax * height)
 
                     try:
-                        label = self.pipeline.labels[detection.label]
+                        label = self.labels[detection.label]
                     except:
                         label = detection.label
 
                     # bbox middle coordinates
                     bbox_x, bbox_y = int((x1 + x2) // 2), int((y1 + y2) // 2)
-                    if self.pipeline.transformation_matrix.any():
+                    if self.transformation_matrix.any():
                         # if perspective calibration was done calculate detection (x,y) on warped img
-                        t_bbox_x, t_bbox_y, scale = np.matmul(self.pipeline.transformation_matrix, np.float32([bbox_x, bbox_y, 1]))
+                        t_bbox_x, t_bbox_y, scale = np.matmul(self.transformation_matrix, np.float32([bbox_x, bbox_y, 1]))
                         t_bbox_x, t_bbox_y = int(t_bbox_x / scale), int(t_bbox_y / scale)
                     else:
                         t_bbox_x, t_bbox_y = None, None
@@ -338,10 +324,10 @@ class DepthAiApp:
                     send[label].append(det)
 
                 # send birdview camera if perspective calibration was done
-                if self.pipeline.transformation_matrix.any():
+                if self.transformation_matrix.any():
 
                     # transform frame
-                    transformed_frame = cv2.warpPerspective(frame_copy, self.pipeline.transformation_matrix, (width, height))
+                    transformed_frame = cv2.warpPerspective(frame_copy, self.transformation_matrix, (width, height))
 
                     # draw circle for every bar recognized in new perspective
                     for choclate_bar_name in send:
