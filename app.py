@@ -14,7 +14,7 @@ import select
 import socket
 import argparse
 import re
-from helpers.server import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer
+from helpers.server import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer, serve_forever
 from helpers.delta import RobotDeltaClient
 
 
@@ -24,12 +24,16 @@ class DeltaRobotClient:
 
 class DepthAiApp:
     def __init__(self, args):
-        self.args = args
-        self.pipeline = dai.Pipeline()
         self.server_TCP = None
         self.server_HTTP = None
         self.server_HTTP2 = None
         self.server_HTTP3 = None
+        self.args = args
+        self.pipeline = dai.Pipeline()
+        self.server_TCP_thread = None
+        self.server_HTTP_thread = None
+        self.server_HTTP_thread_2 = None
+        self.server_HTTP_thread_3 = None
         self.delta_client = None
         self.threads = []
         self.labels = []
@@ -175,7 +179,7 @@ class DepthAiApp:
                 camRgb.preview.link(detectionNetwork.input)
                 detectionNetwork.passthrough.link(xoutRgb.input)
                 detectionNetwork.out.link(xoutNN.input)
-            pass
+
 
     def start_servers(self):
         """
@@ -184,45 +188,50 @@ class DepthAiApp:
 
         # start TCP data server (JSON)
         try:
-            server_TCP = socketserver.TCPServer((self.args.ip, self.JSON_PORT), TCPServerRequest)
-            self.server_TCP = threading.Thread(target=server_TCP.serve_forever)
-            self.server_TCP.daemon = True
-            self.server_TCP.start()
+            self.server_TCP = socketserver.TCPServer((self.args.ip, self.JSON_PORT), TCPServerRequest)
+
         except Exception as e:
             print(e)
+
+        self.server_TCP_thread = threading.Thread(target=self.server_TCP.serve_forever)
+        self.server_TCP_thread.daemon = True
+        self.server_TCP_thread.start()
 
         # start MJPEG HTTP Servers
         try:
-            server_HTTP = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT), VideoStreamHandler)
-            self.server_HTTP = threading.Thread(target=server_HTTP.serve_forever)
-            self.server_HTTP.daemon = True
-            self.server_HTTP.start()
+            self.server_HTTP = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT), VideoStreamHandler)
         except Exception as e:
             print(e)
 
+        self.server_HTTP_thread = threading.Thread(target=self.server_HTTP.serve_forever)
+        self.server_HTTP_thread.daemon = True
+        self.server_HTTP_thread.start()
+
         try:
-            server_HTTP2 = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT2), VideoStreamHandler)
-            self.server_HTTP2 = threading.Thread(target=server_HTTP2.serve_forever)
-            self.server_HTTP2.daemon = True
-            self.server_HTTP2.start()
+            self.server_HTTP2 = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT2), VideoStreamHandler)
         except Exception as e:
             print(e)
+
+        self.server_HTTP_thread_2 = threading.Thread(target=self.server_HTTP2.serve_forever)
+        self.server_HTTP_thread_2.daemon = True
+        self.server_HTTP_thread_2.start()
 
         if self.depth_bool:
             try:
-                server_HTTP3 = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT3), VideoStreamHandler)
-                self.server_HTTP3 = threading.Thread(target=server_HTTP3.serve_forever)
-                self.server_HTTP3.daemon = True
-                self.server_HTTP3.start()
+                self.server_HTTP3 = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT3), VideoStreamHandler)
             except Exception as e:
                 print(e)
 
-        if self.sort_bool:
-            try:
-                delta_client = RobotDeltaClient(self.delta_host, self.delta_port)
-                self.delta_client = threading.Thread(target=delta_client.handle_communication)
-            except Exception as e:
-                print(e)
+            self.server_HTTP_thread_3 = threading.Thread(target=self.server_HTTP3.serve_forever)
+            self.server_HTTP_thread_3.daemon = True
+            self.server_HTTP_thread_3.start()
+
+        # if self.sort_bool:
+        #     try:
+        #         delta_client = RobotDeltaClient(self.delta_host, self.delta_port)
+        #         self.delta_client = threading.Thread(target=delta_client.handle_communication)
+        #     except Exception as e:
+        #         print(e)
 
 
     def run(self):
@@ -350,7 +359,7 @@ class DepthAiApp:
                         for detected_bar in send[choclate_bar_name]:
                             coordinates = detected_bar["middle_transformed"]
                             cv2.circle(transformed_frame, coordinates, 5, (255, 255, 255), -1)
-                    frametosend = transformed_frame
+                    self.server_HTTP2.frametosend = transformed_frame
 
                 # encode json file and send it using TCP
                 json_send = json.dumps(send)
@@ -375,8 +384,7 @@ class DepthAiApp:
 
                 if cv2.waitKey(1) == ord('q'):
                     break
-            pass
-        pass
+
 
 
 if __name__ == "__main__":

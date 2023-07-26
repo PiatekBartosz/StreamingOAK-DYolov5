@@ -4,6 +4,19 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from PIL import Image
 import cv2
 from io import BytesIO
+import select
+
+
+def serve_forever( server1, server2, server3):
+    while True:
+        r, w, e = select.select([server1, server2, server3], [], [], 0)
+        if server1 in r:
+            server1.handle_request()
+        if server2 in r:
+            server2.handle_request()
+        if server3 in r:
+            server3.handle_request()
+
 
 class TCPServerRequest(socketserver.BaseRequestHandler):
     def handle(self):
@@ -38,3 +51,6 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     # Handle request in a separate thread
     pass
+
+
+
