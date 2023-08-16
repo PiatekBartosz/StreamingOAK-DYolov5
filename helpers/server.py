@@ -7,7 +7,8 @@ from io import BytesIO
 import select
 
 
-def serve_forever( server1, server2, server3):
+def serve_forever(server1, server2, server3):
+    # it is required to run multiple servers using http.server in parallel
     while True:
         r, w, e = select.select([server1, server2, server3], [], [], 0)
         if server1 in r:

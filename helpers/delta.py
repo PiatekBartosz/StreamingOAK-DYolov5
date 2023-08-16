@@ -2,17 +2,16 @@ import socket
 import threading
 from time import sleep
 
-# TODO make it work :p
 
-
-class RobotDeltaClient:
-    def __init__(self, delta_host, delta_port):
+class RobotDeltaClient(threading.Thread):
+    def __init__(self, delta_host, delta_port, shared_queue):
+        super().__init__()  # used to call threading.Thread constructor
         self.HOST, self.PORT = delta_host, delta_port
         self.obj_hover_height = "+4000"
         self.obj_pickup_height = "+0000"
         self.error = 100  # how much can differ the real and set position
-        self.queue = [(2500, 5300, 0),
-                      (2444, 2555, 1)]  # later will be replaced with vision system return (x, y, type_of)
+        self.queue_hardcoded = [(2500, 5300, 0), (2444, 2555, 1)]
+        self.shared_queue = shared_queue
 
         # put down location coordinates
         self.put_location_1 = "+1000+1000"
@@ -94,7 +93,6 @@ class RobotDeltaClient:
                     "LIN" + put_location + self.obj_pickup_height + "TOOL",
                     "LIN" + put_location + self.obj_hover_height + "TOOL"]
         return put_down
-
     def wait_until_achieved_pos(self, x_set, y_set, z_set):
         error = 100
         x_curr, y_curr, z_curr = current_position
@@ -102,3 +100,22 @@ class RobotDeltaClient:
             x_curr, y_curr, z_curr = current_position
             sleep(0.01)
         return
+
+
+class SharedQueue:
+    def __init__(self):
+        self.data = None
+        self.lock = threading.Lock()
+        self.want_to_sort = False
+
+    def set_queue(self, value):
+        with self.lock:
+            self.data = value
+
+    def get_queue(self):
+        with self.lock:
+            return self.data
+
+    # def start_sorting(self):
+
+

@@ -1,4 +1,5 @@
 import json
+import platform
 import socketserver
 import threading
 import time
@@ -14,13 +15,13 @@ import select
 import socket
 import argparse
 import re
+import os
 from helpers.server import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer, serve_forever
-from helpers.delta import RobotDeltaClient
+from helpers.delta import RobotDeltaClient, SharedQueue
+from helpers.userinterface import UserInterface
 
 
-class DeltaRobotClient:
-    def __init__(self):
-        pass
+# TODO make user interface work
 
 class DepthAiApp:
     def __init__(self, args):
@@ -43,6 +44,9 @@ class DepthAiApp:
         self.sort_bool = bool(self.args.sort)
         self.IPAddress = args.ip
         self.transformation_matrix = None
+        self.text_prompt = []
+        self.shared_queue = SharedQueue()
+        self.ui = UserInterface(self.shared_queue)
 
         # parse args
         if self.args.device == 0:
@@ -226,24 +230,31 @@ class DepthAiApp:
             self.server_HTTP_thread_3.daemon = True
             self.server_HTTP_thread_3.start()
 
-        # if self.sort_bool:
-        #     try:
-        #         delta_client = RobotDeltaClient(self.delta_host, self.delta_port)
-        #         self.delta_client = threading.Thread(target=delta_client.handle_communication)
-        #     except Exception as e:
-        #         print(e)
+        if self.sort_bool:
+            try:
+                self.delta_client = RobotDeltaClient(self.delta_host, self.delta_port, self.shared_queue)
+            except Exception as e:
+                print(e)
 
+    def print_prompts(self):
+        os.system('cls' if os.name == 'nt' else 'clear')
+        for line in self.text_prompt:
+            print(line)
+        print("\nCurrent queue: ", self.delta_client.shared_queue.get_queue())
+        print("Press space to start sorting")
 
     def run(self):
         self.setup_pipeline()
         with dai.Device(self.pipeline) as device:
-            print("DepthAI running.")
-            print(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT)}' for normal video stream.")
-            print(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT2)}' for warped video stream.")
-            if self.depth_bool:
-                print(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
-            print(f"Navigate to '{str(self.IPAddress)}:{str(self.JSON_PORT)}' for detection data in json format.")
+            self.text_prompt.append("DepthAI running.")
 
+            self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT)}' for normal video stream.")
+            self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT2)}' for warped video stream.")
+            if self.depth_bool:
+                self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
+            self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.JSON_PORT)}' for detection data in json format.")
+
+            self.ui.run('\n'.join(self.text_prompt))
 
 
             if self.depth_bool:
@@ -309,12 +320,27 @@ class DepthAiApp:
 
                     # bbox middle coordinates
                     bbox_x, bbox_y = int((x1 + x2) // 2), int((y1 + y2) // 2)
+                    middle = (bbox_x, bbox_y)
+
+                    t_bbox_x, t_bbox_y = None, None
+                    t_bbox_x_normalized, t_bbox_y_normalized = None, None
+
                     if self.transformation_matrix.any():
                         # if perspective calibration was done calculate detection (x,y) on warped img
                         t_bbox_x, t_bbox_y, scale = np.matmul(self.transformation_matrix, np.float32([bbox_x, bbox_y, 1]))
                         t_bbox_x, t_bbox_y = int(t_bbox_x / scale), int(t_bbox_y / scale)
-                    else:
-                        t_bbox_x, t_bbox_y = None, None
+
+                        # normalize the calculated values
+                        if 0 <= t_bbox_x <= 416 and 0 <= t_bbox_y <= 416:
+                            x = t_bbox_x / 416
+                            y = t_bbox_y / 416
+                            # if the number is not in the interval <0, 1> it's outside calibration square, invalid
+                            if 0 <= x <= 1 and 0 <= y <= 1:
+                                t_bbox_x_normalized = x
+                                t_bbox_y_normalized = y
+
+                    middle_transformed = (t_bbox_x, t_bbox_y)
+                    middle_transformed_normalized = (t_bbox_x_normalized, t_bbox_y_normalized)
 
                     if self.depth_bool:
                         cv2.putText(frame, str(label), (x1 + 10, y1 + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, color)
@@ -343,10 +369,12 @@ class DepthAiApp:
 
                     det = {"x_max": detection.xmax, "x_min": detection.xmin, "y_max": detection.ymax,
                            "y_min": detection.ymin,
-                           "middle": (bbox_x, bbox_y), "middle_transformed": (t_bbox_x, t_bbox_y),
+                           "middle": middle, "middle_transformed": middle_transformed,
+                           "middle_transformed_normalized": middle_transformed_normalized,
                            "conf": detection.confidence,
                            "spatial_xyz": spatialXYZ}
                     send[label].append(det)
+
 
                 # send birdview camera if perspective calibration was done
                 if self.transformation_matrix.any():
@@ -365,6 +393,16 @@ class DepthAiApp:
                 json_send = json.dumps(send)
                 self.server_TCP.datatosend = json_send
 
+                # update queue with normalized data
+                local_queue = []
+                for index, (name, detections) in enumerate(send.items()):
+                    if detections:
+                        for detection in detections:
+                            x, y = detection['middle_transformed_normalized']
+                            local_queue.append((x, y, index))
+                self.shared_queue.set_queue(local_queue)
+
+
                 # send frames using http servers
                 self.server_HTTP.frametosend = frame
                 if self.depth_bool:
@@ -382,9 +420,11 @@ class DepthAiApp:
                     if self.depth_bool:
                         cv2.imshow("depth", depthFrameColor)
 
+                # self.print_prompts()
+                # TODO make prompts a threaded class with access to shared queue in order to get user input whether he want to start sorting
+
                 if cv2.waitKey(1) == ord('q'):
                     break
-
 
 
 if __name__ == "__main__":
