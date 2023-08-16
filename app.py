@@ -46,7 +46,7 @@ class DepthAiApp:
         self.transformation_matrix = None
         self.text_prompt = []
         self.shared_queue = SharedQueue()
-        self.ui = UserInterface(self.shared_queue)
+        self.ui = None
 
         # parse args
         if self.args.device == 0:
@@ -254,8 +254,8 @@ class DepthAiApp:
                 self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
             self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.JSON_PORT)}' for detection data in json format.")
 
-            self.ui.run('\n'.join(self.text_prompt))
-
+            self.ui = UserInterface(self.shared_queue, '\n'.join(self.text_prompt))
+            self.ui.start()
 
             if self.depth_bool:
                 # output queues will be used to get the rgb frames and nn data from the outputs defined above
