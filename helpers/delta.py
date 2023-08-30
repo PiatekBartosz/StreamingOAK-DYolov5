@@ -1,10 +1,11 @@
 import socket
 import threading
 from time import sleep
+import curses
 
 
 class RobotDeltaClient(threading.Thread):
-    def __init__(self, delta_host, delta_port, shared_queue):
+    def __init__(self, delta_host, delta_port, text_prompt, shared_queue):
         super().__init__()  # used to call threading.Thread constructor
         self.HOST, self.PORT = delta_host, delta_port
         self.obj_hover_height = "+4000"
@@ -12,6 +13,7 @@ class RobotDeltaClient(threading.Thread):
         self.error = 100  # how much can differ the real and set position
         self.queue_hardcoded = [(2500, 5300, 0), (2444, 2555, 1)]
         self.shared_queue = shared_queue
+        self.text_prompt = text_prompt
 
         # put down location coordinates
         self.put_location_1 = "+1000+1000"
@@ -20,6 +22,12 @@ class RobotDeltaClient(threading.Thread):
         self.put_location_4 = "-1000-1000"
 
         self.sock = None
+
+        def update_shared_queue(self):
+            while self.is_alive():
+                value = self.get_pos()  # Get the position or data you want to share
+                self.shared_queue.set_queue(value)
+                sleep(0.1)
 
     def handle_communication(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -67,15 +75,14 @@ class RobotDeltaClient(threading.Thread):
         commands.extend(self.pick_up_command(x + y))
 
         # put down to specific location and go to default position
-        match type_of:
-            case 0:
-                commands.extend(self.putting_down_command(self.put_location_1))
-            case 1:
-                commands.extend(self.putting_down_command(self.put_location_2))
-            case 2:
-                commands.extend(self.putting_down_command(self.put_location_3))
-            case 3:
-                commands.extend(self.putting_down_command(self.put_location_4))
+        if type_of == 0:
+            commands.extend(self.putting_down_command(self.put_location_1))
+        elif type_of == 1:
+            commands.extend(self.putting_down_command(self.put_location_2))
+        elif type_of == 2:
+            commands.extend(self.putting_down_command(self.put_location_3))
+        elif type_of == 3:
+            commands.extend(self.putting_down_command(self.put_location_4))
 
         # return home command
         commands.append("LIN+4500+0000+0000TOOL")
@@ -93,6 +100,7 @@ class RobotDeltaClient(threading.Thread):
                     "LIN" + put_location + self.obj_pickup_height + "TOOL",
                     "LIN" + put_location + self.obj_hover_height + "TOOL"]
         return put_down
+
     def wait_until_achieved_pos(self, x_set, y_set, z_set):
         error = 100
         x_curr, y_curr, z_curr = current_position

@@ -18,13 +18,14 @@ import re
 import os
 from helpers.server import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer, serve_forever
 from helpers.delta import RobotDeltaClient, SharedQueue
-from helpers.userinterface import UserInterface
+from helpers.userinterface import TextUserInterface
 
 
 # TODO make user interface work
 
-class DepthAiApp:
+class DepthAiApp(threading.Thread):
     def __init__(self, args):
+        super().__init__()  # used to call threading.Thread constructor
         self.server_TCP = None
         self.server_HTTP = None
         self.server_HTTP2 = None
@@ -184,6 +185,8 @@ class DepthAiApp:
                 detectionNetwork.passthrough.link(xoutRgb.input)
                 detectionNetwork.out.link(xoutNN.input)
 
+    def get_shared_queue(self):
+        return self.shared_queue
 
     def start_servers(self):
         """
@@ -232,16 +235,10 @@ class DepthAiApp:
 
         if self.sort_bool:
             try:
-                self.delta_client = RobotDeltaClient(self.delta_host, self.delta_port, self.shared_queue)
+                self.delta_client = RobotDeltaClient(self.delta_host, self.delta_port, self.text_prompt, self.shared_queue)
+                self.delta_client.start()
             except Exception as e:
                 print(e)
-
-    def print_prompts(self):
-        os.system('cls' if os.name == 'nt' else 'clear')
-        for line in self.text_prompt:
-            print(line)
-        print("\nCurrent queue: ", self.delta_client.shared_queue.get_queue())
-        print("Press space to start sorting")
 
     def run(self):
         self.setup_pipeline()
@@ -254,8 +251,8 @@ class DepthAiApp:
                 self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
             self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.JSON_PORT)}' for detection data in json format.")
 
-            self.ui = UserInterface(self.shared_queue, '\n'.join(self.text_prompt))
-            self.ui.start()
+
+            # self.ui.start()
 
             if self.depth_bool:
                 # output queues will be used to get the rgb frames and nn data from the outputs defined above
@@ -448,7 +445,14 @@ if __name__ == "__main__":
 
     app = DepthAiApp(args)
     app.start_servers()
-    app.run()
+    app.start()
+
+    time.sleep(1)  # TODO change so that it check if app is ready
+
+    ui = TextUserInterface(app)
+    ui.run()
+
+
 
 
 

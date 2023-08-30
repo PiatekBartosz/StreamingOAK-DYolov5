@@ -1,0 +1,22 @@
+Screen {
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 2;
+    padding: 2;
+    align: center middle;
+}
+
+# grid_app {
+
+}
+
+TextUserInterface {
+    layout: grid;
+    grid-size: 2 1;
+    align: center middle;
+}
+
+Button {
+    width: 100%;
+    align: center middle;
+}
