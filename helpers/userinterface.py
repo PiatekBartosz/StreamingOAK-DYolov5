@@ -45,7 +45,7 @@
 import os
 import sys
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Label, Button
+from textual.widgets import Header, Footer, Label, Button, Placeholder
 from helpers.delta import SharedQueue
 import threading
 
@@ -54,6 +54,7 @@ class TextUserInterface(App):
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("s", "start_sorting", "Start sorting process"),
+        ("q", "quit", "Quit App")
     ]
 
     CSS_PATH = "textuserinterface.tcss"
@@ -62,24 +63,19 @@ class TextUserInterface(App):
         super().__init__()
         self.depthaiApp = app
         self.value = ""
+        self.label_widget = Label("Test message")
 
     def compose(self):
-        yield Header()
+        yield Header(Placeholder)
         yield Footer()
-        self.label_widget = Label("Test message")
         yield self.label_widget
-        yield Button("sort", id="sort", variant="primary")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.exit(event.button.id)
-        # todo
 
     def update_label(self):
         i = 0
         while not self.should_exit:
             i += 1
             self.value = self.depthaiApp.shared_queue.get_queue()
-            self.label_widget.text = "Test message\n" + "\n".join(self.value) + '1'
+            self.label_widget.update(str(i))
             time.sleep(1)
 
     def on_load(self, event):

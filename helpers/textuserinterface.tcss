@@ -6,10 +6,6 @@ Screen {
     align: center middle;
 }
 
-# grid_app {
-
-}
-
 TextUserInterface {
     layout: grid;
     grid-size: 2 1;
