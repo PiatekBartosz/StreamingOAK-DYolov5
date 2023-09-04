@@ -13,7 +13,7 @@ This repository is used for autonomous sorting of choclate bars by delta type ro
 ```"-d", "--device"``` Choose host: 0 - delta simulation, 1 - real delta<br />
 "-i", "--ip" Set http and json servers ip-s. The default ip would be localhost <br />
 "-p", "--preview" Choose preview: 0 - preview off, 1 - preview on <br />
-"-D", "--depth" Choose depth: 0 - depth off, 1 - depth on <br />
+"-D", "--depth" Choose depth: 0 - depth off, 1 - depth on <br /> (depth off - boosts FPS)
                
 
 # See result (Host must run Linux)
