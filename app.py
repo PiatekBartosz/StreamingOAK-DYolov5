@@ -18,10 +18,11 @@ import re
 import os
 from helpers.server import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer, serve_forever
 from helpers.delta import RobotDeltaClient, SharedQueue
-from helpers.userinterface import TextUserInterface
+from helpers.userinterface import DeltaTextUserInterfaceApp
+from textual.app import App, ComposeResult
+from textual.widgets import Header, Footer, Static
+from textual.reactive import reactive
 
-
-# TODO make user interface work
 
 class DepthAiApp(threading.Thread):
     def __init__(self, args):
@@ -447,10 +448,12 @@ if __name__ == "__main__":
     app.start_servers()
     app.start()
 
-    time.sleep(1)  # TODO change so that it check if app is ready
+    time.sleep(1)
 
-    ui = TextUserInterface(app)
+    ui = DeltaTextUserInterfaceApp(app.shared_queue)
     ui.run()
+
+    time.sleep(100)
 
 
 

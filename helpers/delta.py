@@ -121,7 +121,10 @@ class SharedQueue:
 
     def get_queue(self):
         with self.lock:
-            return self.data
+            if self.data:
+                return str(self.data)
+            else:
+                return "No detections"
 
     # def start_sorting(self):
 
