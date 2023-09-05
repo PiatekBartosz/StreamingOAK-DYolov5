@@ -1,27 +1,17 @@
 import json
-import platform
 import socketserver
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from io import BytesIO
 import depthai as dai
 import cv2
 from PIL import Image
 from pathlib import Path
 import numpy as np
 import pickle
-import select
-import socket
 import argparse
-import re
-import os
 from helpers.server import TCPServerRequest, VideoStreamHandler, ThreadedHTTPServer, serve_forever
 from helpers.delta import RobotDeltaClient, SharedQueue
 from helpers.userinterface import DeltaTextUserInterfaceApp
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static
-from textual.reactive import reactive
 
 
 class DepthAiApp(threading.Thread):
@@ -44,11 +34,13 @@ class DepthAiApp(threading.Thread):
         self.depth_bool = bool(self.args.depth)
         self.preview_bool = bool(self.args.preview)
         self.sort_bool = bool(self.args.sort)
-        self.IPAddress = args.ip
+        self.hardcoded_queue_bool = bool(self.args.hardcoded_queue)
+        self.ipAddress = args.ip
         self.transformation_matrix = None
         self.text_prompt = []
         self.shared_queue = SharedQueue()
         self.ui = None
+        self.exceptions = []
 
         # parse args
         if self.args.device == 0:
@@ -200,6 +192,7 @@ class DepthAiApp(threading.Thread):
 
         except Exception as e:
             print(e)
+            self.exceptions.append(e)
 
         self.server_TCP_thread = threading.Thread(target=self.server_TCP.serve_forever)
         self.server_TCP_thread.daemon = True
@@ -210,6 +203,7 @@ class DepthAiApp(threading.Thread):
             self.server_HTTP = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT), VideoStreamHandler)
         except Exception as e:
             print(e)
+            self.exceptions.append(e)
 
         self.server_HTTP_thread = threading.Thread(target=self.server_HTTP.serve_forever)
         self.server_HTTP_thread.daemon = True
@@ -219,6 +213,7 @@ class DepthAiApp(threading.Thread):
             self.server_HTTP2 = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT2), VideoStreamHandler)
         except Exception as e:
             print(e)
+            self.exceptions.append(e)
 
         self.server_HTTP_thread_2 = threading.Thread(target=self.server_HTTP2.serve_forever)
         self.server_HTTP_thread_2.daemon = True
@@ -229,6 +224,7 @@ class DepthAiApp(threading.Thread):
                 self.server_HTTP3 = ThreadedHTTPServer((self.args.ip, self.HTTP_SERVER_PORT3), VideoStreamHandler)
             except Exception as e:
                 print(e)
+                self.exceptions.append(e)
 
             self.server_HTTP_thread_3 = threading.Thread(target=self.server_HTTP3.serve_forever)
             self.server_HTTP_thread_3.daemon = True
@@ -236,21 +232,22 @@ class DepthAiApp(threading.Thread):
 
         if self.sort_bool:
             try:
-                self.delta_client = RobotDeltaClient(self.delta_host, self.delta_port, self.text_prompt, self.shared_queue)
+                self.delta_client = RobotDeltaClient(self.delta_host, self.delta_port, self.shared_queue, self.hardcoded_queue_bool)
                 self.delta_client.start()
             except Exception as e:
                 print(e)
+                self.exceptions.append(e)
 
     def run(self):
         self.setup_pipeline()
         with dai.Device(self.pipeline) as device:
             self.text_prompt.append("DepthAI running.")
 
-            self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT)}' for normal video stream.")
-            self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT2)}' for warped video stream.")
+            self.text_prompt.append(f"Navigate to '{str(self.ipAddress)}:{str(self.HTTP_SERVER_PORT)}' for normal video stream.")
+            self.text_prompt.append(f"Navigate to '{str(self.ipAddress)}:{str(self.HTTP_SERVER_PORT2)}' for warped video stream.")
             if self.depth_bool:
-                self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
-            self.text_prompt.append(f"Navigate to '{str(self.IPAddress)}:{str(self.JSON_PORT)}' for detection data in json format.")
+                self.text_prompt.append(f"Navigate to '{str(self.ipAddress)}:{str(self.HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
+            self.text_prompt.append(f"Navigate to '{str(self.ipAddress)}:{str(self.JSON_PORT)}' for detection data in json format.")
 
 
             # self.ui.start()
@@ -441,6 +438,8 @@ if __name__ == "__main__":
                         type=int, choices=[0, 1], default=1)
     parser.add_argument("-s", "--sort", help="Enables automatic sorting: \n0 - sorting off\n1 - sorting on",
                         type=int, choices=[0, 1], default=1)
+    parser.add_argument("-H", "--hardcoded_queue", help="Choose if hardcoded queue: \n0 - hardcoded off\n1 - hardcoded on",
+                        type=int, default=0)
 
     args = parser.parse_args()
 
@@ -448,9 +447,9 @@ if __name__ == "__main__":
     app.start_servers()
     app.start()
 
-    time.sleep(1)
+    time.sleep(5)
 
-    ui = DeltaTextUserInterfaceApp(app.shared_queue)
+    ui = DeltaTextUserInterfaceApp(app)
     ui.run()
 
     time.sleep(100)
