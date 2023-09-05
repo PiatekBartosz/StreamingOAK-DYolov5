@@ -13,17 +13,17 @@ class UserInterface(threading.Thread):
         self.user_input = None
 
     def run(self):
-        i = 0
         while self.running:
-            i += 1
             os.system('cls' if os.name == 'nt' else 'clear')
-            print("No.", i)
             print(self.prompt)
             print("Current Queue state is: ", end="")
             print(self.shared_queue.get_queue())
+            print("Press newline (ENTER) to start sorting")
             self.user_input = UserInterface.non_blocking_input()
             if self.user_input:
                 print(self.user_input)
+                print("keypress detectied:")
+                break
 
 # todo fix non_blocking
     @staticmethod

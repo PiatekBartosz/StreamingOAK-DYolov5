@@ -61,6 +61,9 @@ class DepthAiApp:
             self.HTTP_SERVER_PORT3 = 8070
         self.JSON_PORT = 8060
 
+    def extend_text_prompt(self, txt):
+        self.text_prompt.extend(txt)
+
     def setup_pipeline(self):
         # load transformation matrix
         if self.depth_bool:
@@ -233,15 +236,10 @@ class DepthAiApp:
         if self.sort_bool:
             try:
                 self.delta_client = RobotDeltaClient(self.delta_host, self.delta_port, self.shared_queue)
+                self.delta_client.start()
             except Exception as e:
                 print(e)
 
-    def print_prompts(self):
-        os.system('cls' if os.name == 'nt' else 'clear')
-        for line in self.text_prompt:
-            print(line)
-        print("\nCurrent queue: ", self.delta_client.shared_queue.get_queue())
-        print("Press space to start sorting")
 
     def run(self):
         self.setup_pipeline()
@@ -256,6 +254,10 @@ class DepthAiApp:
 
             self.ui = UserInterface(self.shared_queue, '\n'.join(self.text_prompt))
             self.ui.start()
+
+            if self.sort_bool:
+                self.delta_client = RobotDeltaClient(self.delta_host, self.delta_port, self.shared_queue)
+                self.delta_client.start()
 
             if self.depth_bool:
                 # output queues will be used to get the rgb frames and nn data from the outputs defined above

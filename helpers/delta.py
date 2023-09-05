@@ -20,25 +20,42 @@ class RobotDeltaClient(threading.Thread):
         self.put_location_4 = "-1000-1000"
 
         self.sock = None
+        self.running = True
 
-    def handle_communication(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((self.HOST, self.PORT))
+    def run(self):
+        connected = False
+        # constantly try to be connected
+        while not connected:
+            try:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.connect((self.HOST, self.PORT))
+                connected = True
 
-        # set start position
-        self.sock.sendall(bytes("LIN+4500+0000+0100TOOL", "utf-8"))
-        # print("Current position: ", get_coordinates(recv))
-        while self.queue:
-            x, y, type_of = self.queue[0][0], self.queue[0][1], self.queue[0][2]
-            commands = self.create_commands(x, y, type_of)
+                # set start position
+                self.sock.sendall(bytes("LIN+4500+0000+0100TOOL", "utf-8"))
 
-            while commands:
-                x_set, y_set, z_set = self.get_coordinates(commands[0])
-                self.sock.send(bytes(commands[0], "utf-8"))
-                self.wait_until_achieved_pos(x_set, y_set, z_set)
-                commands.pop(0)
-            self.queue.pop(-1)
-            print("end")
+                # wait for user to start sorting
+                while self.running:
+                    if self.shared_queue.get_sorting():
+                        if self.shared_queue.get_queue() is not None:
+                            x, y, type_of = self.queue[0][0], self.queue[0][1], self.queue[0][2]
+                            commands = self.create_commands(x, y, type_of)
+
+                            while commands:
+                                x_set, y_set, z_set = self.get_coordinates(commands[0])
+                                self.sock.send(bytes(commands[0], "utf-8"))
+                                self.wait_until_achieved_pos(x_set, y_set, z_set)
+                                commands.pop(0)
+                            self.queue.pop(-1)
+                            print("end")
+                        self.shared_queue.stop_sorting()
+                    else:
+                        sleep(0.1)
+            except socket.error:
+                # sleep for 2s if lost connection
+                sleep(2)
+
+
 
     def get_pos(self):
         global current_position
@@ -115,6 +132,15 @@ class SharedQueue:
     def get_queue(self):
         with self.lock:
             return self.data
+
+    def start_sorting(self):
+        self.want_to_sort = True
+
+    def stop_sorting(self):
+        self.want_to_sort = False
+
+    def get_sorting(self):
+        return self.want_to_sort
 
     # def start_sorting(self):
 
