@@ -10,10 +10,8 @@ DeltaTextUserInterfaceApp {
 
 .box {
     height: 1fr;
-    content-align: center middle;
 }
 
 QueueDisplay{
     height: 1fr;
-    content-align: center middle;
 }
