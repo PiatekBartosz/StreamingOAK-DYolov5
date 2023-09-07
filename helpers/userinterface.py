@@ -1,45 +1,53 @@
-import threading
-import os
-import sys
-import select
+from typing import Any, Coroutine
+from textual.app import App, ComposeResult
+from textual.widgets import Header, Footer, Static
+from helpers.delta import SharedQueue
 
 
-class UserInterface(threading.Thread):
-    def __init__(self, shared_queue, text_prompt):
+class DeltaTextUserInterfaceApp(App):
+
+    BINDINGS = [("d", "toggle_dark", "Toggle dark mode"),
+                ("s", "turn_sort", "Turn on sorting"),
+                ("q", "quit", "Quit TUI")]
+
+    def __init__(self, app):
         super().__init__()
+        self.delta_client = app.delta_client
+        self.shared_queue = app.shared_queue
+        text_prompt_joined = "\n".join(app.text_prompt)
+        self.text_prompt = str(text_prompt_joined)
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Footer()
+        yield Static(self.text_prompt)
+        yield QueueDisplay("Init text user interface", self.shared_queue)
+
+    # toggle dark mode after pressing "d"
+    def action_toogle_dark(self) -> None:
+        self.dark = not self.dark
+
+    # turn OFF TUI after pressing "q"
+    def action_quit(self) -> Coroutine[Any, Any, None]:
+        return super().action_quit()
+    
+    # turn ON sorting after pressing "s"
+    def action_turn_sort(self) -> None:
+        self.delta_client.sort()
+
+    def on_mount(self) -> None:
+        self.title = "Robot Delta Text User Interface"
+
+
+class QueueDisplay(Static):
+    def __init__(self, text_prompt, shared_queue):
+        super().__init__(text_prompt)
         self.shared_queue = shared_queue
-        self.prompt = text_prompt
-        self.running = True
-        self.user_input = None
 
-    def run(self):
-        while self.running:
-            os.system('cls' if os.name == 'nt' else 'clear')
-            print(self.prompt)
-            print("Current Queue state is: ", end="")
-            print(self.shared_queue.get_queue())
-            print("Press newline (ENTER) to start sorting")
-            self.user_input = UserInterface.non_blocking_input()
-            if self.user_input:
-                print(self.user_input)
-                print("keypress detectied:")
-                break
+    def on_mount(self) -> None:
+        # the queue will be updated with a given interval
+        interval = 0.5
+        self.set_interval(interval, self.update_queue)
 
-# todo fix non_blocking
-    @staticmethod
-    def non_blocking_input():
-        # this method enables to check for certain keypress without blocking the program
-        while sys.stdin in select.select([sys.stdin], [], [], 0.1)[0]:
-            line = sys.stdin.readline().strip()
-            if line:
-                return line
-
-    def set_prompt(self, prompt):
-        self.prompt = prompt
-
-    def get_user_input(self):
-        return self.user_input
-
-    def stop(self):
-        self.running = False
-        # todo fix prompt
+    def update_queue(self) -> None:
+        self.update(str(self.shared_queue.get_queue()))
