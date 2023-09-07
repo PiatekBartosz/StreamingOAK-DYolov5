@@ -1,0 +1,19 @@
+DeltaTextUserInterfaceApp {
+    layout: vertical;
+    background: $boost;
+    height: 5;
+    margin: 1;
+    min-width: 50;
+    padding: 1;
+
+}
+
+.box {
+    height: 1fr;
+    content-align: center middle;
+}
+
+QueueDisplay{
+    height: 1fr;
+    content-align: center middle;
+}

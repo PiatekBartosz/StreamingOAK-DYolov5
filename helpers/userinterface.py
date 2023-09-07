@@ -9,6 +9,8 @@ class DeltaTextUserInterfaceApp(App):
     BINDINGS = [("d", "toggle_dark", "Toggle dark mode"),
                 ("s", "turn_sort", "Turn on sorting"),
                 ("q", "quit", "Quit TUI")]
+    
+    CSS_PATH = "userinterface.tcss"
 
     def __init__(self, app):
         super().__init__()
@@ -20,7 +22,7 @@ class DeltaTextUserInterfaceApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Footer()
-        yield Static(self.text_prompt)
+        yield Static(self.text_prompt, classes="box")
         yield QueueDisplay("Init text user interface", self.shared_queue)
 
     # toggle dark mode after pressing "d"
