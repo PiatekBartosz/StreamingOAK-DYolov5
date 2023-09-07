@@ -2,6 +2,13 @@
 Stream OAK-D camera prediction while running a custom Yolov5 model
 This repository is used for autonomous sorting of object recognized by the vision system of delta type robot
 
+# TUI - Only Command Line Text User Interface 
+![Alt text](docs/TUI.png)
+
+# Video and JSON-format data from remote Jetson Nano host
+
+![Alt text](docs/streams.png)
+
 # Installation
 ```python3 -m pip install -r requirements.txt```
 

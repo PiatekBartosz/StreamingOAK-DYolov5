@@ -242,15 +242,11 @@ class DepthAiApp(threading.Thread):
         self.setup_pipeline()
         with dai.Device(self.pipeline) as device:
             self.text_prompt.append("DepthAI running.")
-
             self.text_prompt.append(f"Navigate to '{str(self.ipAddress)}:{str(self.HTTP_SERVER_PORT)}' for normal video stream.")
             self.text_prompt.append(f"Navigate to '{str(self.ipAddress)}:{str(self.HTTP_SERVER_PORT2)}' for warped video stream.")
             if self.depth_bool:
                 self.text_prompt.append(f"Navigate to '{str(self.ipAddress)}:{str(self.HTTP_SERVER_PORT3)}' for depth heatmap video stream.")
             self.text_prompt.append(f"Navigate to '{str(self.ipAddress)}:{str(self.JSON_PORT)}' for detection data in json format.")
-
-
-            # self.ui.start()
 
             if self.depth_bool:
                 # output queues will be used to get the rgb frames and nn data from the outputs defined above
@@ -370,7 +366,6 @@ class DepthAiApp(threading.Thread):
                            "spatial_xyz": spatialXYZ}
                     send[label].append(det)
 
-
                 # send birdview camera if perspective calibration was done
                 if self.transformation_matrix.any():
 
@@ -414,9 +409,6 @@ class DepthAiApp(threading.Thread):
 
                     if self.depth_bool:
                         cv2.imshow("depth", depthFrameColor)
-
-                # self.print_prompts()
-                # TODO make prompts a threaded class with access to shared queue in order to get user input whether he want to start sorting
 
                 if cv2.waitKey(1) == ord('q'):
                     break
