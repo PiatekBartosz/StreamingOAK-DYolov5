@@ -15,13 +15,17 @@ This repository is used for autonomous sorting of object recognized by the visio
 # Run
 ```python3 app.py```
 
-# Run options
+# Run options 
 
 ```"-d", "--device"``` Choose host: 0 - delta simulation, 1 - real delta<br />
 ```"-i", "--ip"``` Set http and json servers ip-s. The default ip would be localhost <br />
 ```"-p", "--preview"``` Choose preview: 0 - preview off, 1 - preview on <br />
 ```"-D", "--depth"``` Choose depth: 0 - depth off, 1 - depth on <br /> (depth off - boosts FPS)
                
+# Running on with remote host using SSH HEADLESS
+```python app.py --preview 0 --ip your_ip```<br />
+```--preview 0``` will run app in HEADLESS mode<br />
+```--ip your_ip ``` will set the ip where the video & JSON stream will be send  
 
 # See result (Host must run Linux)
 Video: [your_ip:8090](http://localhost:8090)
