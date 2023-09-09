@@ -5,7 +5,7 @@ import pickle
 import math
 
 print("Mark corners of the warp in this specific order:")
-print("TOP_LEFT, BOT_LEFT, BOT_RIGHT, TOP_RIGHT")\
+print("TOP_LEFT, BOT_LEFT, BOT_RIGHT, TOP_RIGHT")
 
 # store warp box corners
 corners = []
