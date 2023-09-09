@@ -40,6 +40,25 @@ with dai.Device(pipeline) as device:
         if corners:
             for index, corner in enumerate(corners):
                 cv2.circle(frame, corner, 5, colors[index], -1)
+                
+            frame = cv2.putText(
+                img=frame,
+                text="Mark conrners of the warp in this order:",
+                org=(10, 20),
+                fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                fontScale=0.5,
+                color=(0, 255, 0),
+                thickness=1
+            )
+            frame = cv2.putText(
+                img=frame,
+                text="TOP_LEFT, BOT_LEFT, BOT_RIGHT, TOP_RIGHT",
+                org=(10, 40),
+                fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                fontScale=0.5,
+                color=(0, 255, 0),
+                thickness=1
+            )
 
         cv2.imshow("frame", frame)
         cv2.setMouseCallback('frame', get_mouse_position)
@@ -63,7 +82,7 @@ with dai.Device(pipeline) as device:
             img_warped = cv2.putText(
                 img=img_warped,
                 text="If the warp is correct press y,",
-                org=(20, 10),
+                org=(20, 20),
                 fontFace=cv2.FONT_HERSHEY_DUPLEX,
                 fontScale=0.5,
                 color=(0, 255, 0),
@@ -71,8 +90,8 @@ with dai.Device(pipeline) as device:
             )
             img_warped = cv2.putText(
                 img=img_warped,
-                text="therwise press n",
-                org=(20, 20),
+                text="otherwise press n",
+                org=(20, 40),
                 fontFace=cv2.FONT_HERSHEY_DUPLEX,
                 fontScale=0.5,
                 color=(0, 255, 0),
