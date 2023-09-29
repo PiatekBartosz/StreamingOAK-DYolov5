@@ -389,7 +389,8 @@ class DepthAiApp(threading.Thread):
                     if detections:
                         for detection in detections:
                             x, y = detection['middle_transformed_normalized']
-                            local_queue.append((x, y, index))
+                            if x and y:
+                                local_queue.append(tuple([float(x), float(y), int(index)]))
                 self.shared_queue.set_queue(local_queue)
 
 
@@ -421,11 +422,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--device", help="Choose host: \n0 - delta simulation\n1 - real delta",
-                        type=int, choices=[0, 1], default=0)
+                        type=int, choices=[0, 1], default=1)
     parser.add_argument("-i", "--ip", help="Set http and json servers ip-s. The default ip would be localhost",
                         type=str, default='localhost')
     parser.add_argument("-p", "--preview", help="Choose preview: \n0 - preview off\n1 - preview on",
-                        type=int, choices=[0, 1], default=1)
+                        type=int, choices=[0, 1], default=0)
     parser.add_argument("-D", "--depth", help="Choose depth: \n0 - depth off\n1 - depth on",
                         type=int, choices=[0, 1], default=1)
     parser.add_argument("-s", "--sort", help="Enables automatic sorting: \n0 - sorting off\n1 - sorting on",

@@ -8,9 +8,9 @@ class RobotDeltaClient(threading.Thread):
         super().__init__()  # used to call threading.Thread constructor
         self.HOST, self.PORT = delta_host, delta_port
         self.home_pos = "+0000-1900-4500"
-        self.obj_hover_height = "+4000"
-        self.obj_pickup_height = "+0000"
-        self.obj_drop_down_height = "-5500"
+        self.obj_hover_height = "-4100"
+        self.obj_pickup_height = "-5550"
+        self.obj_drop_down_height = "-5000"
         self.error = 100  # how much can differ the real and set position
         self.queue_hardcoded = [(200, 200, 0), (100, 100, 1)]
         self.shared_queue = shared_queue
@@ -48,21 +48,19 @@ class RobotDeltaClient(threading.Thread):
         else:
             local_queue = self.queue_hardcoded
 
-        if not isinstance(local_queue, list):
-            return
-
         commands = []
+
+        # TODO fix
 
         for detection in local_queue:
             # normalize element size
             x, y, type_of_detection = detection[0], detection[1], detection[2]
 
             if 0 <= x <= 416 and 0 <= y <= 416:
-                x_norm, y_norm = x / 416, y / 416
 
                 # calculate the coordinates with correct axis orientation (x_orient, y_orient)
-                x_norm_orient = int(x_norm * self.calibration_box_size[0] - self.calibration_box_size[0]/2.0) * self.x_orient
-                y_norm_orient = int(y_norm * self.calibration_box_size[1] - self.calibration_box_size[1]/2.0) * self.y_orient
+                x_norm_orient = int(x * self.calibration_box_size[0] - self.calibration_box_size[0]/2.0) * self.x_orient
+                y_norm_orient = int(y * self.calibration_box_size[1] - self.calibration_box_size[1]/2.0) * self.y_orient
 
                 # check if it's in the sorting range
                 if abs(x_norm_orient) > self.calibration_box_size[0]//2 or abs(y_norm_orient) > self.calibration_box_size[1]//2:
@@ -121,18 +119,18 @@ class RobotDeltaClient(threading.Thread):
         return
 
     def pick_up_command(self, coordinates):
-        pick_up = ["LIN" + coordinates + self.obj_hover_height + "TOOL_" + "V0030",
-                "LIN" + coordinates + self.obj_pickup_height + "TOOL_" + "V0030",
+        pick_up = ["LIN" + coordinates + self.obj_hover_height + "TOOL_" + "V0100",
+                "LIN" + coordinates + self.obj_pickup_height + "TOOL_" + "V0100",
                 "RELB",
-                "LIN" + coordinates + self.obj_hover_height + "TOOL_" + "V0010"]
+                "LIN" + coordinates + self.obj_hover_height + "TOOL_" + "V0100"]
         return pick_up
 
 
     def dropping_down_command(self, drop_location):
-        put_down = ["LIN" + drop_location + self.obj_hover_height + "TOOL_" + "V0010",
-                    "LIN" + drop_location + self.obj_drop_down_height + "TOOL_" + "V0010",
+        put_down = ["LIN" + drop_location + self.obj_hover_height + "TOOL_" + "V0100",
+                    "LIN" + drop_location + self.obj_drop_down_height + "TOOL_" + "V0100",
                     "RELA",
-                    "LIN" + drop_location + self.obj_hover_height + "TOOL_" + "V0030"]
+                    "LIN" + drop_location + self.obj_hover_height + "TOOL_" + "V0100"]
         return put_down
 
 
@@ -191,7 +189,7 @@ class RobotDeltaClient(threading.Thread):
             commands.extend(self.dropping_down_command(self.put_location_2))
 
         # return home command
-        commands.append("LIN" + self.home_pos + "TOOL_" + "V0030")
+        commands.append("LIN" + self.home_pos + "TOOL_" + "V0100")
         return commands
 
 
@@ -216,6 +214,6 @@ class SharedQueue:
     def get_queue(self):
         with self.lock:
             if self.data:
-                return str(self.data)
+                return self.data
             else:
                 return "No detections"
