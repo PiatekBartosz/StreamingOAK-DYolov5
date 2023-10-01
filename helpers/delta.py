@@ -85,7 +85,6 @@ class RobotDeltaClient(threading.Thread):
 
         elif prefix == "LIN":
             # add velocity
-            print("Performing: ", command)
             self.delta_sock.send(command.encode())  # send LIN command
             sleep(0.3)
             self.delta_sock.recv(28)  # clear LIN return value
@@ -105,6 +104,11 @@ class RobotDeltaClient(threading.Thread):
             sleep(0.3)
             self.delta_sock.recv(4)
             sleep(0.3)
+
+        elif prefix == "JOG":
+            self.delta_sock.send(command.encode())  # send JOG command
+            sleep(0.3)
+            self.delta_sock.recv(28)  # clear JOG return value
 
         elif prefix == "TIM":
             timeout = command[3:6]

@@ -6,9 +6,13 @@ from helpers.delta import SharedQueue
 
 class DeltaTextUserInterfaceApp(App):
 
-    BINDINGS = [("d", "toggle_dark", "Toggle dark mode"),
-                ("s", "turn_sort", "Turn on sorting"),
-                ("q", "quit", "Quit TUI")]
+    BINDINGS = [("b", "toggle_dark", "Toggle dark mode"),
+                ("space", "turn_sort", "Turn on sorting"),
+                ("esc", "quit", "Quit TUI"),
+                ("w,up,k", "navigate(-1,0)", "Move Up"),
+                ("s,down,j", "navigate(1,0)", "Move Down"),
+                ("a,left,h", "navigate(0,-1)", "Move Left"),
+                ("d,right,l", "navigate(0,1)", "Move Right")]
 
     def __init__(self, app):
         super().__init__()
@@ -23,17 +27,20 @@ class DeltaTextUserInterfaceApp(App):
         yield Static(self.text_prompt)
         yield QueueDisplay("Init text user interface", self.shared_queue)
 
-    # toggle dark mode after pressing "d"
+    # toggle dark mode after pressing "b"
     def action_toogle_dark(self) -> None:
         self.dark = not self.dark
 
-    # turn OFF TUI after pressing "q"
+    # turn OFF TUI after pressing "esc"
     def action_quit(self) -> Coroutine[Any, Any, None]:
         return super().action_quit()
     
     # turn ON sorting after pressing "s"
     def action_turn_sort(self) -> None:
         self.delta_client.sort()
+
+    # handle JOG movement, triggered by the arrow keys / j,k,l,i
+
 
     def on_mount(self) -> None:
         self.title = "Robot Delta Text User Interface"
