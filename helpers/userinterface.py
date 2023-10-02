@@ -6,9 +6,9 @@ from helpers.delta import SharedQueue
 
 class DeltaTextUserInterfaceApp(App):
 
-    BINDINGS = [("b", "toggle_dark", "Toggle dark mode"),
+    BINDINGS = [("esc", "quit", "Quit TUI"),
+                ("b", "toggle_dark", "Toggle dark mode"),
                 ("space", "turn_sort", "Turn on sorting"),
-                ("esc", "quit", "Quit TUI"),
                 ("w,up,k", "navigate(-1,0)", "Move Up"),
                 ("s,down,j", "navigate(1,0)", "Move Down"),
                 ("a,left,h", "navigate(0,-1)", "Move Left"),
@@ -31,11 +31,11 @@ class DeltaTextUserInterfaceApp(App):
     def action_toogle_dark(self) -> None:
         self.dark = not self.dark
 
-    # turn OFF TUI after pressing "esc"
+    # turn OFF TUI after pressing "ESCAPE"
     def action_quit(self) -> Coroutine[Any, Any, None]:
         return super().action_quit()
     
-    # turn ON sorting after pressing "s"
+    # turn ON sorting after pressing "SPACE"
     def action_turn_sort(self) -> None:
         self.delta_client.sort()
 
