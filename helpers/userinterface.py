@@ -6,13 +6,15 @@ from helpers.delta import SharedQueue
 
 class DeltaTextUserInterfaceApp(App):
 
-    BINDINGS = [("esc", "quit", "Quit TUI"),
-                ("b", "toggle_dark", "Toggle dark mode"),
-                ("space", "turn_sort", "Turn on sorting"),
-                ("w,up,k", "navigate(-1,0)", "Move Up"),
-                ("s,down,j", "navigate(1,0)", "Move Down"),
-                ("a,left,h", "navigate(0,-1)", "Move Left"),
-                ("d,right,l", "navigate(0,1)", "Move Right")]
+    BINDINGS = [("q", "quit()", "Quit TUI"),
+               ("space", "test_key(4)", "Turn on sorting"),
+               ("b", "toggle_dark", "Toggle dark mode"),
+               ("w,up,k", "jog_movement(0, 1, 0)", "Move Up"),
+               ("s,down,j", "jog_movement(0, -1, 0)", "Move Down"),
+               ("a,left,h", "jog_movement(-1, 0, 0)", "Move Left"),
+               ("d,right,l", "jog_movement(1, 0, 0)", "Move Right"),
+               ("r,pageup", "jog_movement(0, 0, 1)", "Move Up"),
+               ("f,pagedown", "jog_movement(0, 0, -1)", "Move Down")]
 
     def __init__(self, app):
         super().__init__()
@@ -20,6 +22,7 @@ class DeltaTextUserInterfaceApp(App):
         self.shared_queue = app.shared_queue
         text_prompt_joined = "\n".join(app.text_prompt)
         self.text_prompt = str(text_prompt_joined)
+        self.is_button_pressed = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -39,8 +42,10 @@ class DeltaTextUserInterfaceApp(App):
     def action_turn_sort(self) -> None:
         self.delta_client.sort()
 
+    # TODO make it async?
     # handle JOG movement, triggered by the arrow keys / j,k,l,i
-
+    def action_jog_movement(self, x_str, y_str, z_str) -> None:
+        self.delta_client.jog_operation(int(x_str), int(y_str), int(z_str))
 
     def on_mount(self) -> None:
         self.title = "Robot Delta Text User Interface"

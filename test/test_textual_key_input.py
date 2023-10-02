@@ -4,13 +4,15 @@ import threading
 
 
 class TestApp(App):
-     BINDINGS = [("escape", "quit()", "Quit TUI"),
+     BINDINGS = [("q", "quit()", "Quit TUI"),
                ("b", "toggle_dark", "Toggle dark mode"),
                ("space", "test_key(4)", "Turn on sorting"),
                ("w,up,k", "test_key(0)", "Move Up"),
                ("s,down,j", "test_key(1)", "Move Down"),
                ("a,left,h", "test_key(2)", "Move Left"),
-               ("d,right,l", "test_key(3)", "Move Right")]
+               ("d,right,l", "test_key(3)", "Move Right"),
+               ("r,pageup", "test_key(5)", "Move Up"),
+               ("f,pagedown", "test_key(6)", "Move Down")]
 
      def __init__(self):
           super().__init__()

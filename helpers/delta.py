@@ -21,6 +21,7 @@ class RobotDeltaClient(threading.Thread):
         self.calibration_box_size = (3800, 3800)  # size of the square that is used when calibrating delta vision system
         self.x_orient, self.y_orient = -1, 1  # x_camera, x_delta relation as well as y_camera, y_delta
         self.delta_sock_connected = False
+        self.robot_busy = False  # used to prevent automatic sorting and JOG simultaneously 
 
         # put down location coordinates
         self.put_location_1 = "+1000+1000"
@@ -42,6 +43,9 @@ class RobotDeltaClient(threading.Thread):
             self.exceptions.append(e)
  
     def sort(self):
+        # prevent set robot busy varaible to prevent JOG operation
+        self.robot_busy = True
+
         # get local queue -> depends if hardcoded queue option has been chosen
         if not self.hardcoded_queue_bool:
             local_queue = self.shared_queue.get_queue()
@@ -75,6 +79,20 @@ class RobotDeltaClient(threading.Thread):
             self.execute_command(commands[0])
             commands.pop(0)
 
+        # enable JOG oepration
+        self.robot_busy = False
+
+    def jog_operation(self, x, y, z):
+        if not self.robot_busy:
+            prescaler = 1000
+            x_formated = self.get_4_digit_format(x * prescaler)
+            y_formated = self.get_4_digit_format(y * prescaler)
+            z_formated = self.get_4_digit_format(z * prescaler)
+
+            command = "JOG" + x_formated + y_formated + z_formated + "TOOL_"
+            self.execute_command(command)
+
+
     def execute_command(self, command):
         prefix = command[0:3]
 
@@ -105,10 +123,11 @@ class RobotDeltaClient(threading.Thread):
             self.delta_sock.recv(4)
             sleep(0.3)
 
+        # example JOG command: JOG+0000+0000-5000TOOL_
         elif prefix == "JOG":
             self.delta_sock.send(command.encode())  # send JOG command
             sleep(0.3)
-            self.delta_sock.recv(28)  # clear JOG return value
+            self.delta_sock.recv(23)  # clear JOG return value
 
         elif prefix == "TIM":
             timeout = command[3:6]
@@ -148,23 +167,8 @@ class RobotDeltaClient(threading.Thread):
         x = (-1)*x + x_offset
         y = (-1)*y + y_offset
 
-        if x >= 0:
-            x = str(x)
-            missing = 4 - len(x)  # we want to achieve 4 digit format
-            x = "+" + "0" * missing + x
-        else:
-            x = str(x)[1:]
-            missing = 4 - len(x)
-            x = "-" + "0" * missing + x
-
-        if y >= 0:
-            y = str(y)
-            missing = 4 - len(y)  # we want to achieve 4 digit format
-            y = "+" + "0" * missing + y
-        else:
-            y = str(y)[1:]
-            missing = 4 - len(y)
-            y = "-" + "0" * missing + y
+        x = get_4_digit_format(x)
+        y = get_4_digit_format(y)
 
         # pick up object
         commands.extend(self.pick_up_command(x + y))
@@ -197,11 +201,23 @@ class RobotDeltaClient(threading.Thread):
         return commands
 
 
-    def get_coordinates(s):
+    def get_coordinates(self, s):
         x = int(s[4:8]) if s[3] == "+" else int(s[3:8])
         y = int(s[9:13]) if s[8] == "+" else int(s[8:13])
         z = int(s[14:18]) if s[13] == "+" else int(s[13:18])
         return x, y, z
+    
+
+    def get_4_digit_format(self, num) -> str:
+        if num >= 0:
+            num = str(num)
+            missing = 4 - len(num)  # we want to achieve 4 digit format
+            result = "+" + "0" * missing + num
+        else:
+            num = str(num)[1:]
+            missing = 4 - len(num)
+            result = "-" + "0" * missing + num
+        return result
 
 
 
