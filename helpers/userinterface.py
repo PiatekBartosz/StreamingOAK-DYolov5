@@ -33,6 +33,7 @@ class DeltaTextUserInterfaceApp(App):
     
     # turn ON sorting after pressing "s"
     def action_turn_sort(self) -> None:
+        
         self.delta_client.sort()
 
     def on_mount(self) -> None:

@@ -9,7 +9,7 @@ class RobotDeltaClient(threading.Thread):
         self.HOST, self.PORT = delta_host, delta_port
         self.home_pos = "+0000-1900-4500"
         self.obj_hover_height = "-4100"
-        self.obj_pickup_height = "-5550"
+        self.obj_pickup_height = "-5680"
         self.obj_drop_down_height = "-5000"
         self.error = 100  # how much can differ the real and set position
         self.queue_hardcoded = [(200, 200, 0), (100, 100, 1)]
@@ -23,10 +23,10 @@ class RobotDeltaClient(threading.Thread):
         self.delta_sock_connected = False
 
         # put down location coordinates
-        self.put_location_1 = "+1000+1000"
-        self.put_location_2 = "+1000-1000"
-        self.put_location_3 = "-1000+1000"
-        self.put_location_4 = "-1000-1000"
+        self.put_location_1 = "-2678-1322"
+        self.put_location_2 = "-2678-1322"
+        self.put_location_3 = "-2678-1322"
+        self.put_location_4 = "-2678-1322"
 
         self.sock = None
 
@@ -139,7 +139,7 @@ class RobotDeltaClient(threading.Thread):
 
         # the is not aligned with y-axis
         x_offset = 0
-        y_offset = 200
+        y_offset = 0
 
         x = (-1)*x + x_offset
         y = (-1)*y + y_offset

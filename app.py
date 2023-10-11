@@ -50,7 +50,7 @@ class DepthAiApp(threading.Thread):
 
         # PORTS
         self.HTTP_SERVER_PORT = 8090
-        self.HTTP_SERVER_PORT2 = 8080
+        self.HTTP_SERVER_PORT2 = 8088
         if self.depth_bool:
             self.HTTP_SERVER_PORT3 = 8070
         self.JSON_PORT = 8060
@@ -424,7 +424,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--device", help="Choose host: \n0 - delta simulation\n1 - real delta",
                         type=int, choices=[0, 1], default=1)
     parser.add_argument("-i", "--ip", help="Set http and json servers ip-s. The default ip would be localhost",
-                        type=str, default='localhost')
+                        type=str, default='192.168.0.100')
     parser.add_argument("-p", "--preview", help="Choose preview: \n0 - preview off\n1 - preview on",
                         type=int, choices=[0, 1], default=0)
     parser.add_argument("-D", "--depth", help="Choose depth: \n0 - depth off\n1 - depth on",
@@ -445,7 +445,7 @@ if __name__ == "__main__":
     ui = DeltaTextUserInterfaceApp(app)
     ui.run()
 
-    time.sleep(100)
+    time.sleep(10)
 
 
 
